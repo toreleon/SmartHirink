@@ -1,0 +1,22 @@
+FROM node:20-alpine AS base
+WORKDIR /app
+
+COPY package.json package-lock.json* ./
+COPY packages/core/package.json ./packages/core/
+COPY apps/web/package.json      ./apps/web/
+RUN npm install --workspace=apps/web --include-workspace-root
+
+COPY tsconfig.base.json ./
+COPY packages/ ./packages/
+COPY apps/web/ ./apps/web/
+RUN npm run build --workspace=packages/core && \
+    npm run build --workspace=apps/web
+
+FROM node:20-alpine
+WORKDIR /app
+ENV NODE_ENV=production
+COPY --from=base /app/.next/standalone ./
+COPY --from=base /app/apps/web/public ./apps/web/public
+COPY --from=base /app/.next/static ./apps/web/.next/static
+EXPOSE 3000
+CMD ["node", "apps/web/server.js"]

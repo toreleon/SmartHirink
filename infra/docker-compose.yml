@@ -1,0 +1,122 @@
+version: '3.9'
+
+services:
+  # ───────────────────────────────── PostgreSQL ──────────────────────────────
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: smarthirink
+      POSTGRES_PASSWORD: smarthirink_secret
+      POSTGRES_DB: smarthirink
+    ports:
+      - '5432:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U smarthirink']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ───────────────────────────────── Redis ───────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - '6379:6379'
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ───────────────────────────────── LiveKit ─────────────────────────────────
+  livekit:
+    image: livekit/livekit-server:latest
+    restart: unless-stopped
+    ports:
+      - '7880:7880'   # HTTP / WebSocket
+      - '7881:7881'   # RTC (TCP)
+      - '7882:7882/udp' # RTC (UDP)
+    volumes:
+      - ./livekit.yaml:/livekit.yaml
+    command: --config /livekit.yaml --dev
+    environment:
+      LIVEKIT_KEYS: "devkey: secret123456789012345678901234567890"
+
+  # ───────────────────────────────── API ─────────────────────────────────────
+  api:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.api
+    restart: unless-stopped
+    ports:
+      - '3001:3001'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - ../.env
+    environment:
+      DATABASE_URL: postgresql://smarthirink:smarthirink_secret@postgres:5432/smarthirink
+      REDIS_URL: redis://redis:6379
+      LIVEKIT_URL: ws://livekit:7880
+      PORT: 3001
+
+  # ───────────────────────────────── Agent ───────────────────────────────────
+  agent:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.agent
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - ../.env
+    environment:
+      DATABASE_URL: postgresql://smarthirink:smarthirink_secret@postgres:5432/smarthirink
+      REDIS_URL: redis://redis:6379
+      LIVEKIT_URL: ws://livekit:7880
+
+  # ───────────────────────────────── Worker ──────────────────────────────────
+  worker:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.worker
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - ../.env
+    environment:
+      DATABASE_URL: postgresql://smarthirink:smarthirink_secret@postgres:5432/smarthirink
+      REDIS_URL: redis://redis:6379
+
+  # ───────────────────────────────── Web ─────────────────────────────────────
+  web:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.web
+    restart: unless-stopped
+    ports:
+      - '3000:3000'
+    depends_on:
+      - api
+    environment:
+      NEXT_PUBLIC_API_URL: http://api:3001
+      NEXT_PUBLIC_LIVEKIT_URL: ws://localhost:7880
+
+volumes:
+  pgdata:
+  redisdata:

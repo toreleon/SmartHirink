@@ -1,0 +1,22 @@
+FROM node:20-alpine AS base
+WORKDIR /app
+
+COPY package.json package-lock.json* ./
+COPY packages/core/package.json ./packages/core/
+COPY apps/worker/package.json   ./apps/worker/
+COPY apps/api/package.json      ./apps/api/
+RUN npm install --workspace=apps/worker --include-workspace-root
+
+COPY tsconfig.base.json ./
+COPY packages/ ./packages/
+COPY apps/worker/ ./apps/worker/
+COPY apps/api/prisma/ ./apps/api/prisma/
+RUN npm run build --workspace=packages/core && \
+    npx prisma generate --schema=apps/api/prisma/schema.prisma && \
+    npm run build --workspace=apps/worker
+
+FROM node:20-alpine
+WORKDIR /app
+ENV NODE_ENV=production
+COPY --from=base /app /app
+CMD ["node", "apps/worker/dist/index.js"]

@@ -1,0 +1,21 @@
+# LiveKit Server Configuration
+port: 7880
+rtc:
+  tcp_port: 7881
+  udp_port: 7882
+  use_external_ip: false
+  enable_loopback_candidate: true
+keys:
+  devkey: secret123456789012345678901234567890
+logging:
+  level: info
+room:
+  auto_create: true
+  empty_timeout: 300    # 5 minutes
+  max_participants: 10
+webhook:
+  urls:
+    - http://api:3001/api/webhooks/livekit
+  api_key: devkey
+turn:
+  enabled: false

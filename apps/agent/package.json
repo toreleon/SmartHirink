@@ -1,0 +1,30 @@
+{
+  "name": "@smarthirink/agent",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "build": "tsc -b",
+    "start": "node dist/main.js",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@smarthirink/core": "*",
+    "@smarthirink/rag": "*",
+    "@prisma/client": "^5.18.0",
+    "bullmq": "^5.12.0",
+    "ioredis": "^5.4.0",
+    "livekit-client": "^2.3.0",
+    "livekit-server-sdk": "^2.6.0",
+    "openai": "^4.56.0",
+    "pino": "^9.3.0",
+    "ws": "^8.18.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/ws": "^8.5.0",
+    "tsx": "^4.16.0",
+    "typescript": "^5.5.0"
+  }
+}

@@ -1,0 +1,26 @@
+FROM node:20-alpine AS base
+WORKDIR /app
+
+# Install all workspace deps
+COPY package.json package-lock.json* ./
+COPY packages/core/package.json ./packages/core/
+COPY packages/rag/package.json  ./packages/rag/
+COPY apps/api/package.json      ./apps/api/
+RUN npm install --workspace=apps/api --include-workspace-root
+
+# Copy source & build
+COPY tsconfig.base.json ./
+COPY packages/ ./packages/
+COPY apps/api/ ./apps/api/
+RUN npm run build --workspace=packages/core && \
+    npm run build --workspace=packages/rag  && \
+    npx prisma generate --schema=apps/api/prisma/schema.prisma && \
+    npm run build --workspace=apps/api
+
+# ── production image ─────────────────────────────────────────────────────────
+FROM node:20-alpine
+WORKDIR /app
+ENV NODE_ENV=production
+COPY --from=base /app /app
+EXPOSE 3001
+CMD ["sh", "-c", "npx prisma migrate deploy --schema=apps/api/prisma/schema.prisma && node apps/api/dist/server.js"]

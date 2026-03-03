@@ -1,0 +1,221 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Auth & Users ────────────────────────────────────────
+enum UserRole {
+  ADMIN
+  RECRUITER
+  CANDIDATE
+}
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  fullName     String   @map("full_name")
+  role         UserRole @default(CANDIDATE)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  candidateProfile CandidateProfile?
+  createdScenarios Scenario[]         @relation("ScenarioCreator")
+  recruitedSessions InterviewSession[] @relation("Recruiter")
+
+  @@map("users")
+}
+
+model CandidateProfile {
+  id              String   @id @default(uuid()) @db.Uuid
+  userId          String   @unique @map("user_id") @db.Uuid
+  fullName        String   @map("full_name")
+  email           String
+  phone           String?
+  resumeUrl       String?  @map("resume_url")
+  resumeText      String?  @map("resume_text")
+  skills          String[] @default([])
+  experienceYears Int      @default(0) @map("experience_years")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  user     User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessions InterviewSession[]
+
+  @@map("candidate_profiles")
+}
+
+// ─── Interview Config ────────────────────────────────────
+model Scenario {
+  id              String   @id @default(uuid()) @db.Uuid
+  title           String
+  description     String
+  position        String
+  level           String
+  domain          String   @default("Software Engineering")
+  topics          String[] @default([])
+  questionCount   Int      @default(10) @map("question_count")
+  durationMinutes Int      @default(30) @map("duration_minutes")
+  createdById     String   @map("created_by_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  createdBy User               @relation("ScenarioCreator", fields: [createdById], references: [id])
+  rubrics   Rubric[]
+  sessions  InterviewSession[]
+
+  @@map("scenarios")
+}
+
+model Rubric {
+  id         String   @id @default(uuid()) @db.Uuid
+  scenarioId String   @map("scenario_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  scenario Scenario          @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+  criteria RubricCriterion[]
+  sessions InterviewSession[]
+
+  @@map("rubrics")
+}
+
+model RubricCriterion {
+  id          String @id @default(uuid()) @db.Uuid
+  rubricId    String @map("rubric_id") @db.Uuid
+  name        String
+  description String
+  maxScore    Int    @default(5) @map("max_score")
+  weight      Float  @default(0.2)
+
+  rubric Rubric @relation(fields: [rubricId], references: [id], onDelete: Cascade)
+
+  @@map("rubric_criteria")
+}
+
+// ─── Interview Session & Turns ───────────────────────────
+enum InterviewPhase {
+  CREATED
+  WAITING
+  INTRO
+  QUESTIONING
+  WRAP_UP
+  COMPLETED
+  CANCELLED
+}
+
+model InterviewSession {
+  id          String         @id @default(uuid()) @db.Uuid
+  scenarioId  String         @map("scenario_id") @db.Uuid
+  rubricId    String         @map("rubric_id") @db.Uuid
+  candidateId String         @map("candidate_id") @db.Uuid
+  recruiterId String         @map("recruiter_id") @db.Uuid
+  livekitRoom String         @unique @map("livekit_room")
+  phase       InterviewPhase @default(CREATED)
+  startedAt   DateTime?      @map("started_at")
+  endedAt     DateTime?      @map("ended_at")
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+
+  scenario  Scenario         @relation(fields: [scenarioId], references: [id])
+  rubric    Rubric           @relation(fields: [rubricId], references: [id])
+  candidate CandidateProfile @relation(fields: [candidateId], references: [id])
+  recruiter User             @relation("Recruiter", fields: [recruiterId], references: [id])
+  turns     Turn[]
+  scoreCard ScoreCard?
+  report    Report?
+
+  @@index([candidateId])
+  @@index([recruiterId])
+  @@index([phase])
+  @@map("interview_sessions")
+}
+
+model Turn {
+  id              String   @id @default(uuid()) @db.Uuid
+  sessionId       String   @map("session_id") @db.Uuid
+  index           Int
+  speakerRole     String   @map("speaker_role") // "AI" | "CANDIDATE"
+  transcript      String
+  audioUrl        String?  @map("audio_url")
+  sttLatencyMs    Int?     @map("stt_latency_ms")
+  llmTtftMs       Int?     @map("llm_ttft_ms")
+  ttsFirstAudioMs Int?     @map("tts_first_audio_ms")
+  e2eLatencyMs    Int?     @map("e2e_latency_ms")
+  startedAt       DateTime @map("started_at")
+  endedAt         DateTime? @map("ended_at")
+
+  session InterviewSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, index])
+  @@map("turns")
+}
+
+// ─── Evaluation ──────────────────────────────────────────
+model ScoreCard {
+  id               String   @id @default(uuid()) @db.Uuid
+  sessionId        String   @unique @map("session_id") @db.Uuid
+  overallScore     Float    @map("overall_score")
+  maxPossibleScore Float    @map("max_possible_score")
+  criterionScores  Json     @map("criterion_scores") // CriterionScore[]
+  strengths        String[] @default([])
+  weaknesses       String[] @default([])
+  recommendation   String   // STRONG_YES | YES | MAYBE | NO | STRONG_NO
+  evaluatedAt      DateTime @map("evaluated_at")
+
+  session InterviewSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  report  Report?
+
+  @@map("score_cards")
+}
+
+model Report {
+  id          String   @id @default(uuid()) @db.Uuid
+  sessionId   String   @unique @map("session_id") @db.Uuid
+  scoreCardId String   @unique @map("score_card_id") @db.Uuid
+  pdfUrl      String?  @map("pdf_url")
+  generatedAt DateTime @map("generated_at")
+
+  session   InterviewSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  scoreCard ScoreCard        @relation(fields: [scoreCardId], references: [id])
+
+  @@map("reports")
+}
+
+// ─── Model Config ────────────────────────────────────────
+model ModelConfig {
+  id                String  @id @default(uuid()) @db.Uuid
+  name              String  @unique
+  sttProvider       String  @map("stt_provider")
+  sttModel          String? @map("stt_model")
+  llmProvider       String  @map("llm_provider")
+  llmModel          String  @map("llm_model")
+  ttsProvider       String  @map("tts_provider")
+  ttsVoice          String? @map("tts_voice")
+  embeddingProvider String  @map("embedding_provider")
+  embeddingModel    String  @map("embedding_model")
+  isDefault         Boolean @default(false) @map("is_default")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  @@map("model_configs")
+}
+
+// ─── Audit Log ───────────────────────────────────────────
+model AuditLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String?  @map("user_id") @db.Uuid
+  action    String
+  entity    String
+  entityId  String?  @map("entity_id")
+  metadata  Json?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([entity, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
