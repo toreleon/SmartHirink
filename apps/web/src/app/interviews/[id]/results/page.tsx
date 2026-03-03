@@ -2,7 +2,35 @@
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
+import Link from 'next/link';
+import { ArrowLeft, Download, Bot, User, ThumbsUp, ThumbsDown } from 'lucide-react';
 import { api } from '@/lib/api';
+import { LoadingSkeleton } from '@/components/skeletons';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+
+function recommendationBadge(rec: string) {
+  switch (rec) {
+    case 'STRONG_YES':
+    case 'YES':
+      return <Badge variant="success">{rec.replace('_', ' ')}</Badge>;
+    case 'MAYBE':
+      return <Badge variant="warning">{rec}</Badge>;
+    default:
+      return <Badge variant="destructive">{rec}</Badge>;
+  }
+}
 
 export default function ResultsPage() {
   const params = useParams();
@@ -28,161 +56,211 @@ export default function ResultsPage() {
   }, [id]);
 
   if (loading) {
-    return <div className="p-8 text-center">Đang tải kết quả...</div>;
+    return (
+      <div className="container max-w-4xl py-8">
+        <LoadingSkeleton lines={8} />
+      </div>
+    );
   }
 
   const criterionScores = scoreCard?.criterionScores || [];
+  const scorePercent = scoreCard
+    ? (scoreCard.overallScore / scoreCard.maxPossibleScore) * 100
+    : 0;
 
   return (
-    <div className="max-w-4xl mx-auto px-6 py-8">
-      <h1 className="text-2xl font-bold mb-6">Kết quả phỏng vấn</h1>
+    <div className="container max-w-4xl py-8">
+      <Button variant="ghost" size="sm" asChild className="mb-6">
+        <Link href={`/interviews/${id}`}>
+          <ArrowLeft className="mr-2 h-4 w-4" />
+          Back to interview
+        </Link>
+      </Button>
 
-      {/* Overall Score */}
+      <h1 className="text-2xl font-bold tracking-tight mb-6">Interview Results</h1>
+
       {scoreCard ? (
-        <>
-          <div className="bg-white rounded-xl border p-6 mb-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="font-semibold text-lg">Đánh giá tổng quan</h2>
-              <span
-                className={`px-3 py-1 rounded-full text-sm font-medium ${
-                  scoreCard.recommendation === 'STRONG_YES' || scoreCard.recommendation === 'YES'
-                    ? 'bg-green-100 text-green-800'
-                    : scoreCard.recommendation === 'MAYBE'
-                      ? 'bg-amber-100 text-amber-800'
-                      : 'bg-red-100 text-red-800'
-                }`}
-              >
-                {scoreCard.recommendation}
-              </span>
-            </div>
+        <Tabs defaultValue="scorecard" className="space-y-6">
+          <TabsList>
+            <TabsTrigger value="scorecard">Scorecard</TabsTrigger>
+            <TabsTrigger value="transcript">Transcript</TabsTrigger>
+            {report?.pdfUrl && <TabsTrigger value="report">Report</TabsTrigger>}
+          </TabsList>
 
-            <div className="flex items-center gap-4 mb-6">
-              <div className="text-4xl font-bold text-primary-600">
-                {scoreCard.overallScore.toFixed(1)}
-              </div>
-              <div className="text-slate-500">
-                / {scoreCard.maxPossibleScore.toFixed(1)} điểm
-              </div>
-              <div className="flex-1 bg-slate-200 rounded-full h-3">
-                <div
-                  className="bg-primary-600 h-3 rounded-full transition-all"
-                  style={{
-                    width: `${(scoreCard.overallScore / scoreCard.maxPossibleScore) * 100}%`,
-                  }}
-                />
-              </div>
-            </div>
-
-            {/* Strengths & Weaknesses */}
-            <div className="grid md:grid-cols-2 gap-4">
-              <div>
-                <h3 className="font-medium text-green-700 mb-2">💪 Điểm mạnh</h3>
-                <ul className="space-y-1">
-                  {scoreCard.strengths.map((s: string, i: number) => (
-                    <li key={i} className="text-sm text-slate-700">• {s}</li>
-                  ))}
-                </ul>
-              </div>
-              <div>
-                <h3 className="font-medium text-red-700 mb-2">📝 Cần cải thiện</h3>
-                <ul className="space-y-1">
-                  {scoreCard.weaknesses.map((w: string, i: number) => (
-                    <li key={i} className="text-sm text-slate-700">• {w}</li>
-                  ))}
-                </ul>
-              </div>
-            </div>
-          </div>
-
-          {/* Criterion Breakdown */}
-          <div className="bg-white rounded-xl border p-6 mb-6">
-            <h2 className="font-semibold text-lg mb-4">Chi tiết đánh giá theo tiêu chí</h2>
-            <div className="space-y-6">
-              {criterionScores.map((cs: any, i: number) => (
-                <div key={i} className="border-b pb-4 last:border-0">
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="font-medium">{cs.criterionName}</h3>
-                    <span className="text-sm font-bold text-primary-600">
-                      {cs.score}/{cs.maxScore}
-                    </span>
+          <TabsContent value="scorecard" className="space-y-6">
+            {/* Overall Score */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle>Overall Assessment</CardTitle>
+                  {recommendationBadge(scoreCard.recommendation)}
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center gap-4 mb-6">
+                  <div className="text-4xl font-bold text-primary">
+                    {scoreCard.overallScore.toFixed(1)}
                   </div>
-                  <div className="bg-slate-200 rounded-full h-2 mb-2">
-                    <div
-                      className="bg-primary-500 h-2 rounded-full"
-                      style={{ width: `${(cs.score / cs.maxScore) * 100}%` }}
-                    />
+                  <div className="text-muted-foreground">
+                    / {scoreCard.maxPossibleScore.toFixed(1)} points
                   </div>
-                  <div className="text-sm text-slate-600 mb-1">
-                    <span className="font-medium">Bằng chứng:</span> &ldquo;{cs.evidence}&rdquo;
-                  </div>
-                  <div className="text-sm text-slate-500">
-                    <span className="font-medium">Lý do:</span> {cs.reasoning}
+                  <div className="flex-1">
+                    <Progress value={scorePercent} className="h-3" />
                   </div>
                 </div>
-              ))}
-            </div>
-          </div>
-        </>
-      ) : (
-        <div className="bg-amber-50 border border-amber-200 rounded-lg p-6 mb-6 text-center">
-          <p className="text-amber-800">
-            ⏳ Đang đánh giá... Kết quả sẽ có trong vài phút.
-          </p>
-        </div>
-      )}
 
-      {/* Report Download */}
-      {report?.pdfUrl && (
-        <div className="bg-white rounded-xl border p-6 mb-6 text-center">
-          <h2 className="font-semibold text-lg mb-3">📄 Báo cáo PDF</h2>
-          <a
-            href={report.pdfUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-block px-6 py-2.5 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
-          >
-            Tải báo cáo PDF
-          </a>
-        </div>
-      )}
+                {/* Strengths & Weaknesses */}
+                <div className="grid gap-6 md:grid-cols-2">
+                  <div>
+                    <h3 className="flex items-center gap-2 font-medium text-success mb-2">
+                      <ThumbsUp className="h-4 w-4" />
+                      Strengths
+                    </h3>
+                    <ul className="space-y-1">
+                      {scoreCard.strengths.map((s: string, i: number) => (
+                        <li key={i} className="text-sm text-muted-foreground">
+                          &bull; {s}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div>
+                    <h3 className="flex items-center gap-2 font-medium text-destructive mb-2">
+                      <ThumbsDown className="h-4 w-4" />
+                      Areas for Improvement
+                    </h3>
+                    <ul className="space-y-1">
+                      {scoreCard.weaknesses.map((w: string, i: number) => (
+                        <li key={i} className="text-sm text-muted-foreground">
+                          &bull; {w}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
 
-      {/* Transcript */}
-      {interview?.turns && interview.turns.length > 0 && (
-        <div className="bg-white rounded-xl border p-6">
-          <h2 className="font-semibold text-lg mb-4">Transcript phỏng vấn</h2>
-          <div className="space-y-3 max-h-96 overflow-y-auto">
-            {interview.turns.map((turn: any, i: number) => (
-              <div
-                key={i}
-                className={`flex gap-3 p-3 rounded-lg ${
-                  turn.speakerRole === 'AI' ? 'bg-blue-50' : 'bg-slate-50'
-                }`}
-              >
-                <span className="text-lg">
-                  {turn.speakerRole === 'AI' ? '🤖' : '👤'}
-                </span>
-                <div>
-                  <p className="text-xs font-medium text-slate-500 mb-1">
-                    {turn.speakerRole === 'AI' ? 'Phỏng vấn viên' : 'Ứng viên'}
-                    {turn.e2eLatencyMs && (
-                      <span className="ml-2 text-slate-400">
-                        ({turn.e2eLatencyMs}ms e2e)
-                      </span>
-                    )}
+            {/* Criterion Breakdown */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Criterion Breakdown</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Criterion</TableHead>
+                      <TableHead className="w-32">Score</TableHead>
+                      <TableHead>Evidence</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {criterionScores.map((cs: any, i: number) => (
+                      <TableRow key={i}>
+                        <TableCell className="font-medium">{cs.criterionName}</TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-bold text-primary">
+                              {cs.score}/{cs.maxScore}
+                            </span>
+                            <Progress
+                              value={(cs.score / cs.maxScore) * 100}
+                              className="h-2 flex-1"
+                            />
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <p className="text-sm text-muted-foreground line-clamp-2">
+                            {cs.reasoning}
+                          </p>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="transcript">
+            <Card>
+              <CardHeader>
+                <CardTitle>Interview Transcript</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {interview?.turns && interview.turns.length > 0 ? (
+                  <div className="space-y-4 max-h-[600px] overflow-y-auto">
+                    {interview.turns.map((turn: any, i: number) => (
+                      <div
+                        key={i}
+                        className={`flex gap-3 rounded-lg p-3 ${
+                          turn.speakerRole === 'AI' ? 'bg-muted' : 'bg-primary/5'
+                        }`}
+                      >
+                        {turn.speakerRole === 'AI' ? (
+                          <Bot className="h-5 w-5 mt-0.5 text-primary shrink-0" />
+                        ) : (
+                          <User className="h-5 w-5 mt-0.5 text-muted-foreground shrink-0" />
+                        )}
+                        <div className="flex-1">
+                          <p className="text-xs font-medium text-muted-foreground mb-1">
+                            {turn.speakerRole === 'AI' ? 'Interviewer' : 'Candidate'}
+                            {turn.e2eLatencyMs && (
+                              <span className="ml-2 opacity-60">
+                                ({turn.e2eLatencyMs}ms)
+                              </span>
+                            )}
+                          </p>
+                          <p className="text-sm">{turn.transcript}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground text-center py-8">
+                    No transcript available
                   </p>
-                  <p className="text-sm">{turn.transcript}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {report?.pdfUrl && (
+            <TabsContent value="report">
+              <Card>
+                <CardContent className="py-12 text-center">
+                  <Download className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                  <h3 className="font-semibold text-lg mb-2">PDF Report</h3>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    Download the full interview report
+                  </p>
+                  <Button asChild>
+                    <a href={report.pdfUrl} target="_blank" rel="noopener noreferrer">
+                      <Download className="mr-2 h-4 w-4" />
+                      Download Report
+                    </a>
+                  </Button>
+                </CardContent>
+              </Card>
+            </TabsContent>
+          )}
+        </Tabs>
+      ) : (
+        <Card>
+          <CardContent className="py-12 text-center">
+            <p className="text-muted-foreground">
+              Evaluation in progress... Results will be available in a few minutes.
+            </p>
+          </CardContent>
+        </Card>
       )}
 
       {/* Disclaimer */}
-      <div className="mt-6 bg-slate-100 rounded-lg p-4">
-        <p className="text-xs text-slate-500 text-center">
-          Báo cáo này được tạo tự động bởi AI. Kết quả chỉ mang tính tham khảo và hỗ trợ
-          quyết định. Nhà tuyển dụng cần xem xét độc lập trước khi đưa ra quyết định cuối cùng.
+      <div className="mt-6 rounded-lg bg-muted p-4 text-center">
+        <p className="text-xs text-muted-foreground">
+          This report was generated automatically by AI. Results are advisory only. Recruiters
+          should review independently before making final decisions.
         </p>
       </div>
     </div>

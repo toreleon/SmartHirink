@@ -10,3 +10,7 @@ coverage/
 *.log
 .DS_Store
 prisma/*.db
+
+# Claude Code
+.claude/
+.agents/

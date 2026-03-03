@@ -2,14 +2,25 @@
 
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import Link from 'next/link';
 import dynamic from 'next/dynamic';
+import { ArrowLeft, Mic, CheckCircle, AlertTriangle, Bot, User } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/lib/store';
+import { toast } from '@/lib/toast';
+import { LoadingSkeleton } from '@/components/skeletons';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
-// Dynamic import to avoid SSR issues with LiveKit
-const InterviewRoom = dynamic(() => import('@/components/InterviewRoom'), {
+const InterviewRoom = dynamic(() => import('@/components/interview-room'), {
   ssr: false,
-  loading: () => <div className="p-8 text-center">Đang tải phòng phỏng vấn...</div>,
+  loading: () => (
+    <div className="flex items-center justify-center h-screen">
+      <p className="text-muted-foreground">Loading interview room...</p>
+    </div>
+  ),
 });
 
 export default function InterviewDetailPage() {
@@ -33,7 +44,7 @@ export default function InterviewDetailPage() {
     api
       .getInterview(id)
       .then(setInterview)
-      .catch(console.error)
+      .catch((err) => toast('error', err.message || 'Failed to load interview'))
       .finally(() => setLoading(false));
   }, [id]);
 
@@ -45,7 +56,7 @@ export default function InterviewDetailPage() {
       setToken(data.token);
       setRoomName(data.room);
     } catch (err: any) {
-      alert(`Lỗi: ${err.message}`);
+      toast('error', err.message);
     } finally {
       setJoining(false);
     }
@@ -57,19 +68,26 @@ export default function InterviewDetailPage() {
       const updated = await api.getInterview(id);
       setInterview(updated);
     } catch (err: any) {
-      alert(`Lỗi: ${err.message}`);
+      toast('error', err.message);
     }
   };
 
   if (loading) {
-    return <div className="p-8 text-center">Đang tải...</div>;
+    return (
+      <div className="container max-w-4xl py-8">
+        <LoadingSkeleton lines={8} />
+      </div>
+    );
   }
 
   if (!interview) {
-    return <div className="p-8 text-center text-red-600">Không tìm thấy phỏng vấn</div>;
+    return (
+      <div className="container py-16 text-center">
+        <p className="text-destructive">Interview not found</p>
+      </div>
+    );
   }
 
-  // If we have a token, show the interview room
   if (token && roomName) {
     return (
       <InterviewRoom
@@ -82,126 +100,148 @@ export default function InterviewDetailPage() {
     );
   }
 
-  // Otherwise show interview detail / pre-join screen
   return (
-    <div className="max-w-4xl mx-auto px-6 py-8">
-      <div className="bg-white rounded-xl border p-6">
-        <h1 className="text-2xl font-bold mb-4">
-          {interview.scenario?.title || 'Phỏng vấn'}
-        </h1>
+    <div className="container max-w-4xl py-8">
+      <Button variant="ghost" size="sm" asChild className="mb-6">
+        <Link href="/interviews">
+          <ArrowLeft className="mr-2 h-4 w-4" />
+          Back to interviews
+        </Link>
+      </Button>
 
-        <div className="grid md:grid-cols-2 gap-6 mb-6">
-          <div>
-            <h3 className="font-semibold text-slate-700 mb-2">Thông tin phỏng vấn</h3>
-            <dl className="space-y-1 text-sm">
-              <div className="flex justify-between">
-                <dt className="text-slate-500">Vị trí</dt>
-                <dd>{interview.scenario?.position}</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt className="text-slate-500">Cấp độ</dt>
-                <dd>{interview.scenario?.level}</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt className="text-slate-500">Trạng thái</dt>
-                <dd>
-                  <span className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded text-xs">
-                    {interview.phase}
-                  </span>
-                </dd>
-              </div>
-              <div className="flex justify-between">
-                <dt className="text-slate-500">Phòng LiveKit</dt>
-                <dd className="font-mono text-xs">{interview.livekitRoom}</dd>
-              </div>
-            </dl>
+      <Card className="mb-6">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle>{interview.scenario?.title || 'Interview'}</CardTitle>
+            <Badge
+              variant={
+                interview.phase === 'COMPLETED'
+                  ? 'success'
+                  : interview.phase === 'CANCELLED'
+                    ? 'destructive'
+                    : 'warning'
+              }
+            >
+              {interview.phase}
+            </Badge>
           </div>
-
-          <div>
-            <h3 className="font-semibold text-slate-700 mb-2">Ứng viên</h3>
-            <dl className="space-y-1 text-sm">
-              <div className="flex justify-between">
-                <dt className="text-slate-500">Tên</dt>
-                <dd>{interview.candidate?.fullName}</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt className="text-slate-500">Email</dt>
-                <dd>{interview.candidate?.email}</dd>
-              </div>
-            </dl>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-6 md:grid-cols-2">
+            <div>
+              <h3 className="font-semibold mb-2">Interview Details</h3>
+              <dl className="space-y-1 text-sm">
+                <div className="flex justify-between">
+                  <dt className="text-muted-foreground">Position</dt>
+                  <dd>{interview.scenario?.position}</dd>
+                </div>
+                <div className="flex justify-between">
+                  <dt className="text-muted-foreground">Level</dt>
+                  <dd>{interview.scenario?.level}</dd>
+                </div>
+                <div className="flex justify-between">
+                  <dt className="text-muted-foreground">Room</dt>
+                  <dd className="font-mono text-xs">{interview.livekitRoom}</dd>
+                </div>
+              </dl>
+            </div>
+            <div>
+              <h3 className="font-semibold mb-2">Candidate</h3>
+              <dl className="space-y-1 text-sm">
+                <div className="flex justify-between">
+                  <dt className="text-muted-foreground">Name</dt>
+                  <dd>{interview.candidate?.fullName}</dd>
+                </div>
+                <div className="flex justify-between">
+                  <dt className="text-muted-foreground">Email</dt>
+                  <dd>{interview.candidate?.email}</dd>
+                </div>
+              </dl>
+            </div>
           </div>
-        </div>
+        </CardContent>
+      </Card>
 
-        {/* AI Disclosure */}
-        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-6">
-          <p className="text-amber-800 text-sm">
-            ⚠️ Cuộc phỏng vấn này được thực hiện bởi AI phỏng vấn viên. Nội dung được ghi âm
-            và phiên âm tự động. Kết quả đánh giá chỉ mang tính hỗ trợ, không thay thế quyết
-            định của nhà tuyển dụng.
-          </p>
-        </div>
+      {/* AI Disclosure */}
+      <Alert variant="warning" className="mb-6">
+        <AlertTriangle className="h-4 w-4" />
+        <AlertTitle>AI-Powered Interview</AlertTitle>
+        <AlertDescription>
+          This interview is conducted by an AI interviewer. The session is recorded and
+          automatically transcribed. Evaluation results are advisory only.
+        </AlertDescription>
+      </Alert>
 
-        {/* Pre-join Checklist */}
-        <div className="bg-slate-50 rounded-lg p-4 mb-6">
-          <h3 className="font-semibold mb-2">Chuẩn bị trước khi vào phỏng vấn</h3>
-          <ul className="text-sm text-slate-600 space-y-1">
-            <li>✅ Kiểm tra microphone đã hoạt động</li>
-            <li>✅ Đảm bảo kết nối internet ổn định</li>
-            <li>✅ Chọn nơi yên tĩnh để phỏng vấn</li>
-            <li>✅ Sẵn sàng trả lời bằng tiếng Việt (có thể dùng thuật ngữ tiếng Anh)</li>
+      {/* Pre-join Checklist */}
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle className="text-base">Before You Begin</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ul className="space-y-2 text-sm text-muted-foreground">
+            <li className="flex items-center gap-2">
+              <CheckCircle className="h-4 w-4 text-success" />
+              Ensure your microphone is working
+            </li>
+            <li className="flex items-center gap-2">
+              <CheckCircle className="h-4 w-4 text-success" />
+              Stable internet connection required
+            </li>
+            <li className="flex items-center gap-2">
+              <CheckCircle className="h-4 w-4 text-success" />
+              Find a quiet environment
+            </li>
+            <li className="flex items-center gap-2">
+              <CheckCircle className="h-4 w-4 text-success" />
+              Be ready to respond in English
+            </li>
           </ul>
-        </div>
+        </CardContent>
+      </Card>
 
-        <div className="flex gap-3">
-          {interview.phase === 'CREATED' && user?.role === 'RECRUITER' && (
-            <button
-              onClick={handleStart}
-              className="px-6 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700"
-            >
-              Bắt đầu phiên phỏng vấn
-            </button>
-          )}
+      {/* Actions */}
+      <div className="flex gap-3">
+        {interview.phase === 'CREATED' && user?.role === 'RECRUITER' && (
+          <Button variant="success" onClick={handleStart}>
+            Start Interview Session
+          </Button>
+        )}
 
-          {(interview.phase === 'WAITING' || interview.phase === 'CREATED') && (
-            <button
-              onClick={handleJoin}
-              disabled={joining}
-              className="px-6 py-2.5 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50"
-            >
-              {joining ? 'Đang kết nối...' : '🎙️ Tham gia phỏng vấn'}
-            </button>
-          )}
+        {(interview.phase === 'WAITING' || interview.phase === 'CREATED') && (
+          <Button onClick={handleJoin} disabled={joining} size="lg">
+            <Mic className="mr-2 h-4 w-4" />
+            {joining ? 'Connecting...' : 'Join Interview'}
+          </Button>
+        )}
 
-          {interview.phase === 'COMPLETED' && (
-            <a
-              href={`/interviews/${id}/results`}
-              className="px-6 py-2.5 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
-            >
-              📊 Xem kết quả
-            </a>
-          )}
-        </div>
+        {interview.phase === 'COMPLETED' && (
+          <Button asChild>
+            <Link href={`/interviews/${id}/results`}>View Results</Link>
+          </Button>
+        )}
       </div>
 
-      {/* Transcript Preview (if available) */}
+      {/* Transcript Preview */}
       {interview.turns && interview.turns.length > 0 && (
-        <div className="mt-6 bg-white rounded-xl border p-6">
-          <h2 className="font-semibold text-lg mb-4">Transcript</h2>
-          <div className="space-y-3">
-            {interview.turns.map((turn: any, i: number) => (
-              <div key={i} className="flex gap-3">
-                <span
-                  className={`text-xs font-medium mt-1 ${
-                    turn.speakerRole === 'AI' ? 'text-blue-600' : 'text-green-600'
-                  }`}
-                >
-                  {turn.speakerRole === 'AI' ? '🤖' : '👤'}
-                </span>
-                <p className="text-sm text-slate-700">{turn.transcript}</p>
-              </div>
-            ))}
-          </div>
-        </div>
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle>Transcript</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {interview.turns.map((turn: any, i: number) => (
+                <div key={i} className="flex gap-3">
+                  {turn.speakerRole === 'AI' ? (
+                    <Bot className="h-4 w-4 mt-0.5 text-primary shrink-0" />
+                  ) : (
+                    <User className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" />
+                  )}
+                  <p className="text-sm">{turn.transcript}</p>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
       )}
     </div>
   );

@@ -1,14 +1,31 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
+function isTokenExpired(token: string): boolean {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return true;
+    const payload = JSON.parse(atob(parts[1]));
+    if (!payload.exp) return false;
+    // Add 30s buffer
+    return payload.exp * 1000 < Date.now() + 30_000;
+  } catch {
+    return true;
+  }
+}
+
 class ApiClient {
   private token: string | null = null;
 
   setToken(token: string | null) {
     this.token = token;
+    if (typeof window === 'undefined') return;
     if (token) {
       localStorage.setItem('token', token);
+      // Also set cookie for middleware
+      document.cookie = `token=${token}; path=/; max-age=${7 * 24 * 60 * 60}; samesite=lax`;
     } else {
       localStorage.removeItem('token');
+      document.cookie = 'token=; path=/; max-age=0';
     }
   }
 
@@ -22,11 +39,22 @@ class ApiClient {
 
   private async request<T>(path: string, options: RequestInit = {}): Promise<T> {
     const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
       ...((options.headers as Record<string, string>) || {}),
     };
 
+    // Only set Content-Type for requests that have a body
+    if (options.body) {
+      headers['Content-Type'] = 'application/json';
+    }
+
     const token = this.getToken();
+
+    // Check token expiration before making request
+    if (token && isTokenExpired(token)) {
+      this.handleUnauthorized();
+      throw new Error('Token expired');
+    }
+
     if (token) {
       headers.Authorization = `Bearer ${token}`;
     }
@@ -34,7 +62,14 @@ class ApiClient {
     const res = await fetch(`${API_URL}/api${path}`, {
       ...options,
       headers,
+      credentials: 'include',
     });
+
+    // 401 interceptor — clear auth and redirect
+    if (res.status === 401) {
+      this.handleUnauthorized();
+      throw new Error('Unauthorized');
+    }
 
     if (!res.ok) {
       const error = await res.json().catch(() => ({ error: res.statusText }));
@@ -43,6 +78,17 @@ class ApiClient {
 
     if (res.status === 204) return {} as T;
     return res.json();
+  }
+
+  private handleUnauthorized() {
+    this.setToken(null);
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('user');
+      const currentPath = window.location.pathname;
+      if (currentPath !== '/login' && currentPath !== '/register') {
+        window.location.href = `/login?redirect=${encodeURIComponent(currentPath)}`;
+      }
+    }
   }
 
   // ─── Auth ──────────────────────────────────────────────
@@ -66,6 +112,20 @@ class ApiClient {
 
   async getMe() {
     return this.request<any>('/auth/me');
+  }
+
+  async changePassword(currentPassword: string, newPassword: string) {
+    return this.request<{ ok: boolean }>('/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify({ currentPassword, newPassword }),
+    });
+  }
+
+  async updateProfile(data: { fullName?: string; email?: string }) {
+    return this.request<any>('/auth/profile', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
   }
 
   // ─── Interviews ────────────────────────────────────────
@@ -117,9 +177,12 @@ class ApiClient {
   }
 
   // ─── Scenarios ─────────────────────────────────────────
-  async listScenarios(params?: { page?: number }) {
+  async listScenarios(params?: { page?: number; position?: string; level?: string; domain?: string }) {
     const search = new URLSearchParams();
     if (params?.page) search.set('page', String(params.page));
+    if (params?.position) search.set('position', params.position);
+    if (params?.level) search.set('level', params.level);
+    if (params?.domain) search.set('domain', params.domain);
     return this.request<{ total: number; items: any[] }>(`/scenarios?${search}`);
   }
 
@@ -138,7 +201,7 @@ class ApiClient {
     return this.request<{ total: number; items: any[] }>(`/candidates?${search}`);
   }
 
-  async updateProfile(data: any) {
+  async updateCandidateProfile(data: any) {
     return this.request<any>('/candidates/profile', { method: 'POST', body: JSON.stringify(data) });
   }
 
@@ -151,7 +214,11 @@ class ApiClient {
   }
 
   logout() {
+    this.request('/auth/logout', { method: 'POST' }).catch(() => {});
     this.setToken(null);
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('user');
+    }
   }
 }
 

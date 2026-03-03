@@ -1,11 +1,29 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
+import { Users, CheckCircle2, Clock, PlayCircle, Plus } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/lib/store';
+import { toast } from '@/lib/toast';
+import { TableSkeleton } from '@/components/skeletons';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+
+function phaseBadge(phase: string) {
+  switch (phase) {
+    case 'COMPLETED':
+      return <Badge variant="success">{phase}</Badge>;
+    case 'CANCELLED':
+      return <Badge variant="destructive">{phase}</Badge>;
+    default:
+      return <Badge variant="warning">{phase}</Badge>;
+  }
+}
 
 export default function DashboardPage() {
-  const { user, hydrate } = useAuthStore();
+  const { user, hydrate, isHydrated } = useAuthStore();
   const [interviews, setInterviews] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -14,116 +32,140 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => {
-    if (!user) return;
+    if (!isHydrated || !user) return;
     api
       .listInterviews({ limit: 10 })
       .then((data) => setInterviews(data.items))
-      .catch(console.error)
+      .catch((err) => toast('error', err.message || 'Failed to load interviews'))
       .finally(() => setLoading(false));
-  }, [user]);
+  }, [user, isHydrated]);
+
+  if (!isHydrated) {
+    return (
+      <div className="container py-8">
+        <TableSkeleton rows={4} />
+      </div>
+    );
+  }
 
   if (!user) {
     return (
-      <div className="max-w-4xl mx-auto px-6 py-16 text-center">
-        <p className="text-slate-600">
-          Vui lòng <a href="/login" className="text-primary-600 underline">đăng nhập</a> để tiếp tục.
+      <div className="container py-16 text-center">
+        <p className="text-muted-foreground">
+          Please{' '}
+          <Link href="/login" className="text-primary underline">
+            sign in
+          </Link>{' '}
+          to continue.
         </p>
       </div>
     );
   }
 
+  const stats = [
+    {
+      label: 'Total Interviews',
+      value: interviews.length,
+      icon: Users,
+    },
+    {
+      label: 'Pending',
+      value: interviews.filter((i) => i.phase === 'WAITING' || i.phase === 'CREATED').length,
+      icon: Clock,
+      color: 'text-warning',
+    },
+    {
+      label: 'Completed',
+      value: interviews.filter((i) => i.phase === 'COMPLETED').length,
+      icon: CheckCircle2,
+      color: 'text-success',
+    },
+    {
+      label: 'In Progress',
+      value: interviews.filter((i) => ['INTRO', 'QUESTIONING', 'WRAP_UP'].includes(i.phase)).length,
+      icon: PlayCircle,
+      color: 'text-primary',
+    },
+  ];
+
   return (
-    <div className="max-w-6xl mx-auto px-6 py-8">
+    <div className="container py-8">
+      {/* Page Header */}
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Dashboard</h1>
-          <p className="text-slate-600">
-            Xin chào, {user.fullName} ({user.role === 'RECRUITER' ? 'Nhà tuyển dụng' : 'Ứng viên'})
+          <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
+          <p className="text-muted-foreground">
+            Welcome back, {user.fullName}
           </p>
         </div>
-        {user.role === 'RECRUITER' && (
-          <a
-            href="/interviews/new"
-            className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
-          >
-            + Tạo phỏng vấn mới
-          </a>
+        {(user.role === 'RECRUITER' || user.role === 'ADMIN') && (
+          <Button asChild>
+            <Link href="/interviews/new">
+              <Plus className="mr-2 h-4 w-4" />
+              New Interview
+            </Link>
+          </Button>
         )}
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-        <div className="bg-white p-4 rounded-xl border">
-          <p className="text-sm text-slate-500">Tổng phỏng vấn</p>
-          <p className="text-2xl font-bold text-slate-900">{interviews.length}</p>
-        </div>
-        <div className="bg-white p-4 rounded-xl border">
-          <p className="text-sm text-slate-500">Đang chờ</p>
-          <p className="text-2xl font-bold text-amber-600">
-            {interviews.filter((i) => i.phase === 'WAITING' || i.phase === 'CREATED').length}
-          </p>
-        </div>
-        <div className="bg-white p-4 rounded-xl border">
-          <p className="text-sm text-slate-500">Hoàn thành</p>
-          <p className="text-2xl font-bold text-green-600">
-            {interviews.filter((i) => i.phase === 'COMPLETED').length}
-          </p>
-        </div>
-        <div className="bg-white p-4 rounded-xl border">
-          <p className="text-sm text-slate-500">Đang diễn ra</p>
-          <p className="text-2xl font-bold text-blue-600">
-            {interviews.filter((i) => ['INTRO', 'QUESTIONING', 'WRAP_UP'].includes(i.phase)).length}
-          </p>
-        </div>
+      {/* Stats Grid */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-8">
+        {stats.map((stat) => {
+          const Icon = stat.icon;
+          return (
+            <Card key={stat.label}>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">
+                  {stat.label}
+                </CardTitle>
+                <Icon className={`h-4 w-4 ${stat.color || 'text-muted-foreground'}`} />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{stat.value}</div>
+              </CardContent>
+            </Card>
+          );
+        })}
       </div>
 
-      {/* Interview List */}
-      <div className="bg-white rounded-xl border">
-        <div className="px-6 py-4 border-b">
-          <h2 className="font-semibold text-lg">Phỏng vấn gần đây</h2>
-        </div>
-
-        {loading ? (
-          <div className="p-6 text-center text-slate-500">Đang tải...</div>
-        ) : interviews.length === 0 ? (
-          <div className="p-6 text-center text-slate-500">Chưa có phỏng vấn nào</div>
-        ) : (
-          <div className="divide-y">
-            {interviews.map((interview) => (
-              <a
-                key={interview.id}
-                href={`/interviews/${interview.id}`}
-                className="flex items-center justify-between px-6 py-4 hover:bg-slate-50 transition"
-              >
-                <div>
-                  <p className="font-medium text-slate-900">
-                    {interview.scenario?.title || 'Phỏng vấn'}
-                  </p>
-                  <p className="text-sm text-slate-500">
-                    {interview.candidate?.fullName} • {interview.scenario?.position}
-                  </p>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span
-                    className={`text-xs px-2 py-1 rounded ${
-                      interview.phase === 'COMPLETED'
-                        ? 'bg-green-100 text-green-700'
-                        : interview.phase === 'CANCELLED'
-                          ? 'bg-red-100 text-red-700'
-                          : 'bg-amber-100 text-amber-700'
-                    }`}
-                  >
-                    {interview.phase}
-                  </span>
-                  <span className="text-xs text-slate-400">
-                    {new Date(interview.createdAt).toLocaleDateString('vi-VN')}
-                  </span>
-                </div>
-              </a>
-            ))}
-          </div>
-        )}
-      </div>
+      {/* Recent Interviews */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Recent Interviews</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <TableSkeleton rows={4} />
+          ) : interviews.length === 0 ? (
+            <div className="py-8 text-center text-muted-foreground">
+              No interviews yet. Create your first interview to get started.
+            </div>
+          ) : (
+            <div className="divide-y">
+              {interviews.map((interview) => (
+                <Link
+                  key={interview.id}
+                  href={`/interviews/${interview.id}`}
+                  className="flex items-center justify-between py-4 transition-colors hover:bg-muted/50 -mx-6 px-6"
+                >
+                  <div>
+                    <p className="font-medium">{interview.scenario?.title || 'Interview'}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {interview.candidate?.fullName} &middot; {interview.scenario?.position}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    {phaseBadge(interview.phase)}
+                    <span className="text-xs text-muted-foreground">
+                      {new Date(interview.createdAt).toLocaleDateString('en-US')}
+                    </span>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

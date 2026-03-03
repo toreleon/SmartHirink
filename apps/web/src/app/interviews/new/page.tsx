@@ -2,7 +2,20 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { ArrowLeft } from 'lucide-react';
+import Link from 'next/link';
 import { api } from '@/lib/api';
+import { toast } from '@/lib/toast';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 export default function NewInterviewPage() {
   const router = useRouter();
@@ -34,7 +47,7 @@ export default function NewInterviewPage() {
 
   const handleCreate = async () => {
     if (!selectedScenario || !selectedRubric || !selectedCandidate) {
-      alert('Vui lòng chọn đầy đủ thông tin');
+      toast('warning', 'Please fill in all fields');
       return;
     }
 
@@ -47,76 +60,90 @@ export default function NewInterviewPage() {
       });
       router.push(`/interviews/${interview.id}`);
     } catch (err: any) {
-      alert(`Lỗi: ${err.message}`);
+      toast('error', err.message);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="max-w-2xl mx-auto px-6 py-8">
-      <h1 className="text-2xl font-bold mb-6">Tạo phỏng vấn mới</h1>
-
-      <div className="bg-white rounded-xl border p-6 space-y-6">
-        <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">
-            Kịch bản phỏng vấn
-          </label>
-          <select
-            value={selectedScenario}
-            onChange={(e) => setSelectedScenario(e.target.value)}
-            className="w-full px-3 py-2 border rounded-lg"
-          >
-            <option value="">-- Chọn kịch bản --</option>
-            {scenarios.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.title} ({s.position} - {s.level})
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {scenarioDetail?.rubrics?.length > 0 && (
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Rubric đánh giá</label>
-            <select
-              value={selectedRubric}
-              onChange={(e) => setSelectedRubric(e.target.value)}
-              className="w-full px-3 py-2 border rounded-lg"
-            >
-              {scenarioDetail.rubrics.map((r: any) => (
-                <option key={r.id} value={r.id}>
-                  Rubric ({r.criteria.length} tiêu chí)
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-
-        <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">Ứng viên</label>
-          <select
-            value={selectedCandidate}
-            onChange={(e) => setSelectedCandidate(e.target.value)}
-            className="w-full px-3 py-2 border rounded-lg"
-          >
-            <option value="">-- Chọn ứng viên --</option>
-            {candidates.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.fullName} ({c.email})
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <button
-          onClick={handleCreate}
-          disabled={loading || !selectedScenario || !selectedCandidate}
-          className="w-full py-2.5 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50"
-        >
-          {loading ? 'Đang tạo...' : 'Tạo phỏng vấn'}
-        </button>
+    <div className="container max-w-2xl py-8">
+      <div className="mb-6">
+        <Button variant="ghost" size="sm" asChild className="mb-4">
+          <Link href="/interviews">
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Back to interviews
+          </Link>
+        </Button>
+        <h1 className="text-2xl font-bold tracking-tight">Create Interview</h1>
+        <p className="text-muted-foreground">Set up a new AI-powered interview session</p>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Interview Configuration</CardTitle>
+          <CardDescription>Select the scenario, rubric, and candidate</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="space-y-2">
+            <Label>Interview Scenario</Label>
+            <Select value={selectedScenario} onValueChange={setSelectedScenario}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select a scenario..." />
+              </SelectTrigger>
+              <SelectContent>
+                {scenarios.map((s) => (
+                  <SelectItem key={s.id} value={s.id}>
+                    {s.title} ({s.position} - {s.level})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {scenarioDetail?.rubrics?.length > 0 && (
+            <div className="space-y-2">
+              <Label>Evaluation Rubric</Label>
+              <Select value={selectedRubric} onValueChange={setSelectedRubric}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {scenarioDetail.rubrics.map((r: any) => (
+                    <SelectItem key={r.id} value={r.id}>
+                      Rubric ({r.criteria.length} criteria)
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <Label>Candidate</Label>
+            <Select value={selectedCandidate} onValueChange={setSelectedCandidate}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select a candidate..." />
+              </SelectTrigger>
+              <SelectContent>
+                {candidates.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.fullName} ({c.email})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <Button
+            onClick={handleCreate}
+            disabled={loading || !selectedScenario || !selectedCandidate}
+            className="w-full"
+          >
+            {loading ? 'Creating...' : 'Create Interview'}
+          </Button>
+        </CardContent>
+      </Card>
     </div>
   );
 }

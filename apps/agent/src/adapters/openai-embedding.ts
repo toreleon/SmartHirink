@@ -10,7 +10,10 @@ export class OpenAIEmbeddingAdapter implements EmbeddingAdapter {
 
   constructor() {
     const env = loadAgentEnv();
-    this.client = new OpenAI({ apiKey: env.OPENAI_API_KEY });
+    this.client = new OpenAI({
+      apiKey: env.OPENAI_API_KEY,
+      ...(env.OPENAI_BASE_URL && { baseURL: env.OPENAI_BASE_URL }),
+    });
     this.model = env.EMBEDDING_MODEL;
     this.dimensions = this.model.includes('3-small') ? 1536 : 3072;
   }

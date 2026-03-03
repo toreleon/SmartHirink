@@ -1,5 +1,3 @@
-version: '3.9'
-
 # Development override: only starts infrastructure services.
 # Run app services locally with `npm run dev:*`
 #

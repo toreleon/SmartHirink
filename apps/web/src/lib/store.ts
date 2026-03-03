@@ -11,6 +11,7 @@ interface AuthState {
   user: User | null;
   token: string | null;
   isAuthenticated: boolean;
+  isHydrated: boolean;
   setAuth: (user: User, token: string) => void;
   logout: () => void;
   hydrate: () => void;
@@ -20,16 +21,20 @@ export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   token: null,
   isAuthenticated: false,
+  isHydrated: false,
 
   setAuth: (user, token) => {
     localStorage.setItem('token', token);
     localStorage.setItem('user', JSON.stringify(user));
-    set({ user, token, isAuthenticated: true });
+    // Sync cookie for middleware
+    document.cookie = `token=${token}; path=/; max-age=${7 * 24 * 60 * 60}; samesite=lax`;
+    set({ user, token, isAuthenticated: true, isHydrated: true });
   },
 
   logout: () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
+    document.cookie = 'token=; path=/; max-age=0';
     set({ user: null, token: null, isAuthenticated: false });
   },
 
@@ -40,10 +45,12 @@ export const useAuthStore = create<AuthState>((set) => ({
     if (token && userStr) {
       try {
         const user = JSON.parse(userStr);
-        set({ user, token, isAuthenticated: true });
+        set({ user, token, isAuthenticated: true, isHydrated: true });
       } catch {
-        // Invalid stored data
+        set({ isHydrated: true });
       }
+    } else {
+      set({ isHydrated: true });
     }
   },
 }));
@@ -57,6 +64,8 @@ interface TranscriptEntry {
   timestamp: number;
 }
 
+type ConnectionQuality = 'excellent' | 'good' | 'poor';
+
 interface InterviewState {
   phase: string;
   speaking: string;
@@ -65,6 +74,13 @@ interface InterviewState {
   candidatePartialText: string;
   error: string | null;
   isConnected: boolean;
+  // New fields for revamped room
+  vad: boolean;
+  isMicMuted: boolean;
+  volume: number;
+  timerStartedAt: number | null;
+  isUserScrolledUp: boolean;
+  connectionQuality: ConnectionQuality;
 
   setPhase: (phase: string) => void;
   setSpeaking: (who: string) => void;
@@ -74,17 +90,30 @@ interface InterviewState {
   setCandidatePartialText: (text: string) => void;
   setError: (error: string | null) => void;
   setConnected: (connected: boolean) => void;
+  setIsMicMuted: (muted: boolean) => void;
+  setConnectionQuality: (quality: ConnectionQuality) => void;
+  setTimerStartedAt: (time: number | null) => void;
   reset: () => void;
 }
 
-export const useInterviewStore = create<InterviewState>((set) => ({
+const initialInterviewState = {
   phase: 'CREATED',
   speaking: 'NONE',
-  transcripts: [],
+  transcripts: [] as TranscriptEntry[],
   aiPartialText: '',
   candidatePartialText: '',
-  error: null,
+  error: null as string | null,
   isConnected: false,
+  vad: false,
+  isMicMuted: true,
+  volume: 1,
+  timerStartedAt: null as number | null,
+  isUserScrolledUp: false,
+  connectionQuality: 'poor' as ConnectionQuality,
+};
+
+export const useInterviewStore = create<InterviewState>((set) => ({
+  ...initialInterviewState,
 
   setPhase: (phase) => set({ phase }),
   setSpeaking: (who) => set({ speaking: who }),
@@ -94,20 +123,13 @@ export const useInterviewStore = create<InterviewState>((set) => ({
       aiPartialText: entry.role === 'AI' ? '' : state.aiPartialText,
       candidatePartialText: entry.role === 'CANDIDATE' ? '' : state.candidatePartialText,
     })),
-  updatePartialTranscript: (_turnId, text) =>
-    set({ candidatePartialText: text }),
+  updatePartialTranscript: (_turnId, text) => set({ candidatePartialText: text }),
   setAiPartialText: (text) => set({ aiPartialText: text }),
   setCandidatePartialText: (text) => set({ candidatePartialText: text }),
   setError: (error) => set({ error }),
   setConnected: (connected) => set({ isConnected: connected }),
-  reset: () =>
-    set({
-      phase: 'CREATED',
-      speaking: 'NONE',
-      transcripts: [],
-      aiPartialText: '',
-      candidatePartialText: '',
-      error: null,
-      isConnected: false,
-    }),
+  setIsMicMuted: (muted) => set({ isMicMuted: muted }),
+  setConnectionQuality: (quality) => set({ connectionQuality: quality }),
+  setTimerStartedAt: (time) => set({ timerStartedAt: time }),
+  reset: () => set(initialInterviewState),
 }));

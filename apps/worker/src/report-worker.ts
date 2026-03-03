@@ -5,6 +5,8 @@ import { PDFDocument, StandardFonts, rgb, type Color } from 'pdf-lib';
 import pino from 'pino';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { z } from 'zod';
+import { CriterionScoreSchema } from '@smarthirink/core';
 
 const logger = pino({ name: 'report-worker' });
 const prisma = new PrismaClient();
@@ -14,6 +16,9 @@ const redis = new IORedis(process.env.REDIS_URL ?? 'redis://localhost:6379', {
 });
 
 const REPORTS_DIR = process.env.REPORTS_DIR ?? './reports';
+
+// Schema for validating criterionScores from JSONB
+const CriterionScoresArraySchema = z.array(CriterionScoreSchema);
 
 async function processReport(
   job: Job<{ sessionId: string; scoreCardId: string }>,
@@ -37,13 +42,15 @@ async function processReport(
   }
 
   const scoreCard = session.scoreCard;
-  const criterionScores = scoreCard.criterionScores as Array<{
-    criterionName: string;
-    score: number;
-    maxScore: number;
-    evidence: string;
-    reasoning: string;
-  }>;
+
+  // Validate criterionScores JSONB with Zod before use
+  let criterionScores: z.infer<typeof CriterionScoresArraySchema>;
+  try {
+    criterionScores = CriterionScoresArraySchema.parse(scoreCard.criterionScores);
+  } catch (err) {
+    logger.error({ err, sessionId }, 'Invalid criterionScores data in scoreCard');
+    throw new Error('Invalid criterionScores data');
+  }
 
   // ─── Build PDF ──────────────────────────────────────────
   const pdfDoc = await PDFDocument.create();
@@ -65,7 +72,6 @@ async function processReport(
     const s = options.size ?? fontSize;
     const x = options.x ?? margin;
 
-    // Simple word wrap
     const maxWidth = page.getWidth() - 2 * margin;
     const words = text.split(' ');
     let line = '';
@@ -90,7 +96,7 @@ async function processReport(
       page.drawText(line, { x, y, font: f, size: s, color: options.color });
       y -= s + 4;
     }
-    y -= 4; // extra spacing after paragraph
+    y -= 4;
   };
 
   const drawSeparator = () => {
@@ -177,15 +183,26 @@ async function processReport(
   const filePath = path.join(REPORTS_DIR, filename);
   await fs.writeFile(filePath, pdfBytes);
 
-  // Save report record
-  await prisma.report.create({
-    data: {
-      sessionId,
-      scoreCardId,
-      pdfUrl: `/reports/${filename}`,
-      generatedAt: new Date(),
-    },
-  });
+  // Save report record — wrap in try-catch to clean up orphaned PDF on DB failure
+  try {
+    await prisma.report.create({
+      data: {
+        sessionId,
+        scoreCardId,
+        pdfUrl: `/reports/${filename}`,
+        generatedAt: new Date(),
+      },
+    });
+  } catch (dbErr) {
+    // DB create failed — delete orphaned PDF file
+    logger.error({ err: dbErr, filePath }, 'DB create failed, deleting orphaned PDF');
+    try {
+      await fs.unlink(filePath);
+    } catch (unlinkErr) {
+      logger.warn({ err: unlinkErr, filePath }, 'Failed to delete orphaned PDF');
+    }
+    throw dbErr;
+  }
 
   logger.info({ sessionId, filePath }, 'Report PDF generated');
 }

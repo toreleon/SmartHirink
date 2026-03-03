@@ -131,6 +131,50 @@ export const ClientDataMessageSchema = z.discriminatedUnion('type', [
   CandidateMetadataUpdateSchema,
 ]);
 
+// ─── Model Config ───────────────────────────────────────
+export const ModelConfigCreateSchema = z.object({
+  name: z.string().min(1).max(100),
+  sttProvider: z.string().min(1),
+  sttModel: z.string().optional(),
+  llmProvider: z.string().min(1),
+  llmModel: z.string().min(1),
+  ttsProvider: z.string().min(1),
+  ttsVoice: z.string().optional(),
+  embeddingProvider: z.string().default('openai'),
+  embeddingModel: z.string().default('text-embedding-3-small'),
+  isDefault: z.boolean().default(false),
+});
+
+// ─── Evaluation Result (worker validation) ──────────────
+export const CriterionScoreSchema = z.object({
+  criterionName: z.string(),
+  score: z.number().min(0),
+  maxScore: z.number().min(1),
+  evidence: z.string(),
+  reasoning: z.string(),
+});
+
+export const EvaluationResultSchema = z.object({
+  criterionScores: z.array(CriterionScoreSchema).min(1),
+  overallScore: z.number().min(0),
+  maxPossibleScore: z.number().min(1),
+  strengths: z.array(z.string()),
+  weaknesses: z.array(z.string()),
+  recommendation: z.enum(['STRONG_YES', 'YES', 'MAYBE', 'NO', 'STRONG_NO']),
+});
+
+// ─── Password Change ────────────────────────────────────
+export const ChangePasswordSchema = z.object({
+  currentPassword: z.string().min(1),
+  newPassword: z.string().min(8),
+});
+
+// ─── Profile Update ─────────────────────────────────────
+export const ProfileUpdateSchema = z.object({
+  fullName: z.string().min(1).optional(),
+  email: z.string().email().optional(),
+});
+
 // ─── Inferred types ──────────────────────────────────────
 export type RegisterInput = z.infer<typeof RegisterSchema>;
 export type LoginInput = z.infer<typeof LoginSchema>;
@@ -141,3 +185,7 @@ export type InterviewSessionCreateInput = z.infer<typeof InterviewSessionCreateS
 export type LiveKitTokenRequest = z.infer<typeof LiveKitTokenRequestSchema>;
 export type AgentDataMessage = z.infer<typeof AgentDataMessageSchema>;
 export type ClientDataMessage = z.infer<typeof ClientDataMessageSchema>;
+export type ModelConfigCreateInput = z.infer<typeof ModelConfigCreateSchema>;
+export type EvaluationResultInput = z.infer<typeof EvaluationResultSchema>;
+export type ChangePasswordInput = z.infer<typeof ChangePasswordSchema>;
+export type ProfileUpdateInput = z.infer<typeof ProfileUpdateSchema>;

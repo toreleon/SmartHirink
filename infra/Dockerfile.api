@@ -26,5 +26,9 @@ WORKDIR /app
 RUN apk add --no-cache openssl
 ENV NODE_ENV=production
 COPY --from=base /app /app
+
+# Create reports directory for static file serving
+RUN mkdir -p /app/reports
+
 EXPOSE 4000
 CMD ["sh", "-c", "npx prisma migrate deploy --schema=apps/api/prisma/schema.prisma && node apps/api/dist/server.js"]

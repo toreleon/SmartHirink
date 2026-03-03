@@ -1,7 +1,33 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
+import { Plus } from 'lucide-react';
 import { api } from '@/lib/api';
+import { toast } from '@/lib/toast';
+import { TableSkeleton } from '@/components/skeletons';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+
+function phaseBadge(phase: string) {
+  switch (phase) {
+    case 'COMPLETED':
+      return <Badge variant="success">{phase}</Badge>;
+    case 'CANCELLED':
+      return <Badge variant="destructive">{phase}</Badge>;
+    default:
+      return <Badge variant="warning">{phase}</Badge>;
+  }
+}
 
 export default function InterviewsListPage() {
   const [interviews, setInterviews] = useState<any[]>([]);
@@ -11,64 +37,73 @@ export default function InterviewsListPage() {
     api
       .listInterviews({ limit: 50 })
       .then((data) => setInterviews(data.items))
-      .catch(console.error)
+      .catch((err) => toast('error', err.message || 'Failed to load interviews'))
       .finally(() => setLoading(false));
   }, []);
 
   return (
-    <div className="max-w-6xl mx-auto px-6 py-8">
+    <div className="container py-8">
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">Danh sách phỏng vấn</h1>
-        <a
-          href="/interviews/new"
-          className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
-        >
-          + Tạo mới
-        </a>
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Interviews</h1>
+          <p className="text-muted-foreground">Manage and review all interviews</p>
+        </div>
+        <Button asChild>
+          <Link href="/interviews/new">
+            <Plus className="mr-2 h-4 w-4" />
+            New Interview
+          </Link>
+        </Button>
       </div>
 
       {loading ? (
-        <p className="text-center text-slate-500">Đang tải...</p>
+        <TableSkeleton rows={4} />
       ) : interviews.length === 0 ? (
-        <div className="bg-white rounded-xl border p-12 text-center">
-          <p className="text-slate-500 mb-4">Chưa có phỏng vấn nào</p>
-          <a href="/interviews/new" className="text-primary-600 hover:underline">
-            Tạo phỏng vấn đầu tiên
-          </a>
-        </div>
+        <Card>
+          <CardContent className="py-12 text-center">
+            <p className="text-muted-foreground mb-4">No interviews yet</p>
+            <Button asChild variant="outline">
+              <Link href="/interviews/new">Create your first interview</Link>
+            </Button>
+          </CardContent>
+        </Card>
       ) : (
-        <div className="bg-white rounded-xl border divide-y">
-          {interviews.map((i) => (
-            <a
-              key={i.id}
-              href={`/interviews/${i.id}`}
-              className="flex items-center justify-between px-6 py-4 hover:bg-slate-50"
-            >
-              <div>
-                <p className="font-medium">{i.scenario?.title || 'Phỏng vấn'}</p>
-                <p className="text-sm text-slate-500">
-                  {i.candidate?.fullName} • {i.scenario?.position} ({i.scenario?.level})
-                </p>
-              </div>
-              <div className="text-right">
-                <span
-                  className={`text-xs px-2 py-1 rounded ${
-                    i.phase === 'COMPLETED'
-                      ? 'bg-green-100 text-green-700'
-                      : i.phase === 'CANCELLED'
-                        ? 'bg-red-100 text-red-700'
-                        : 'bg-amber-100 text-amber-700'
-                  }`}
-                >
-                  {i.phase}
-                </span>
-                <p className="text-xs text-slate-400 mt-1">
-                  {new Date(i.createdAt).toLocaleDateString('vi-VN')}
-                </p>
-              </div>
-            </a>
-          ))}
-        </div>
+        <Card>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Scenario</TableHead>
+                <TableHead>Candidate</TableHead>
+                <TableHead>Position</TableHead>
+                <TableHead>Level</TableHead>
+                <TableHead>Phase</TableHead>
+                <TableHead className="text-right">Date</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {interviews.map((i) => (
+                <TableRow key={i.id} className="cursor-pointer">
+                  <TableCell>
+                    <Link href={`/interviews/${i.id}`} className="font-medium hover:underline">
+                      {i.scenario?.title || 'Interview'}
+                    </Link>
+                  </TableCell>
+                  <TableCell>{i.candidate?.fullName}</TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {i.scenario?.position}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {i.scenario?.level}
+                  </TableCell>
+                  <TableCell>{phaseBadge(i.phase)}</TableCell>
+                  <TableCell className="text-right text-muted-foreground">
+                    {new Date(i.createdAt).toLocaleDateString('en-US')}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </Card>
       )}
     </div>
   );

@@ -5,7 +5,7 @@ import OpenAI from 'openai';
 import pino from 'pino';
 import {
   buildEvaluatorPrompt,
-  type EvaluationResult,
+  EvaluationResultSchema,
   type EvaluatorPromptContext,
 } from '@smarthirink/core';
 
@@ -58,29 +58,57 @@ async function processEvaluation(job: Job<{ sessionId: string }>): Promise<void>
 
   const prompt = buildEvaluatorPrompt(promptCtx);
 
-  // Call LLM for evaluation
-  const response = await openai.chat.completions.create({
-    model: process.env.OPENAI_MODEL ?? 'gpt-4o',
-    messages: [{ role: 'user', content: prompt }],
-    temperature: 0.2,
-    max_tokens: 2048,
-    response_format: { type: 'json_object' },
-  });
+  // Try evaluation with retry on parse failure
+  let evaluation;
+  let lastError: Error | null = null;
 
-  const content = response.choices[0]?.message?.content;
-  if (!content) {
-    throw new Error('Empty evaluation response');
+  for (const temperature of [0.2, 0.1, 0.0]) {
+    try {
+      const response = await openai.chat.completions.create({
+        model: process.env.OPENAI_MODEL ?? 'gpt-4o',
+        messages: [{ role: 'user', content: prompt }],
+        temperature,
+        max_tokens: 2048,
+        response_format: { type: 'json_object' },
+      });
+
+      const content = response.choices[0]?.message?.content;
+      if (!content) {
+        throw new Error('Empty evaluation response');
+      }
+
+      // Safe JSON parse with try-catch
+      let parsed;
+      try {
+        parsed = JSON.parse(content);
+      } catch (parseErr) {
+        throw new Error(`JSON parse failed: ${(parseErr as Error).message}`);
+      }
+
+      // Validate with Zod schema
+      evaluation = EvaluationResultSchema.parse(parsed);
+      lastError = null;
+      break;
+    } catch (err) {
+      lastError = err as Error;
+      logger.warn(
+        { err, temperature, sessionId },
+        'Evaluation attempt failed, retrying with lower temperature',
+      );
+    }
   }
 
-  const evaluation: EvaluationResult = JSON.parse(content);
+  if (!evaluation || lastError) {
+    throw lastError ?? new Error('Evaluation failed after all retries');
+  }
 
-  // Save score card
+  // Save score card with validated data
   const scoreCard = await prisma.scoreCard.create({
     data: {
       sessionId,
       overallScore: evaluation.overallScore,
       maxPossibleScore: evaluation.maxPossibleScore,
-      criterionScores: evaluation.criterionScores as any,
+      criterionScores: evaluation.criterionScores,
       strengths: evaluation.strengths,
       weaknesses: evaluation.weaknesses,
       recommendation: evaluation.recommendation,

@@ -25,28 +25,42 @@ export async function candidateRoutes(app: FastifyInstance) {
     return prisma.candidateProfile.findUniqueOrThrow({ where: { userId: payload.sub } });
   });
 
-  // ─── Get Candidate by ID (Recruiter/Admin) ─────────────
+  // ─── Get Candidate by ID (Recruiter/Admin only) ────────
   app.get('/candidates/:id', { onRequest: [app.authenticate] }, async (req, reply) => {
+    const payload = req.user as { sub: string; role: string };
+    if (payload.role === 'CANDIDATE') {
+      return reply.status(403).send({ error: 'Forbidden' });
+    }
+
     const { id } = req.params as { id: string };
     const profile = await prisma.candidateProfile.findUnique({ where: { id } });
     if (!profile) return reply.status(404).send({ error: 'Not found' });
     return profile;
   });
 
-  // ─── List Candidates (Recruiter/Admin) ──────────────────
-  app.get('/candidates', { onRequest: [app.authenticate] }, async (req) => {
+  // ─── List Candidates (Recruiter/Admin only) ─────────────
+  app.get('/candidates', { onRequest: [app.authenticate] }, async (req, reply) => {
+    const payload = req.user as { sub: string; role: string };
+    if (payload.role === 'CANDIDATE') {
+      return reply.status(403).send({ error: 'Forbidden' });
+    }
+
     const { page = '1', limit = '20' } = req.query as { page?: string; limit?: string };
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    // Clamp pagination bounds
+    const pageNum = Math.max(1, parseInt(page) || 1);
+    const limitNum = Math.min(Math.max(1, parseInt(limit) || 20), 100);
+    const skip = (pageNum - 1) * limitNum;
 
     const [total, items] = await Promise.all([
       prisma.candidateProfile.count(),
       prisma.candidateProfile.findMany({
         skip,
-        take: parseInt(limit),
+        take: limitNum,
         orderBy: { createdAt: 'desc' },
       }),
     ]);
 
-    return { total, page: parseInt(page), limit: parseInt(limit), items };
+    return { total, page: pageNum, limit: limitNum, items };
   });
 }

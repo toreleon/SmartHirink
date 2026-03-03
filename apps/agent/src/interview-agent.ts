@@ -41,6 +41,9 @@ const TTS_CHANNELS = 1;
 const TTS_FRAME_DURATION_MS = 20;
 const TTS_SAMPLES_PER_FRAME = (TTS_SAMPLE_RATE * TTS_FRAME_DURATION_MS) / 1000;
 
+// Utterance queue config
+const MAX_UTTERANCE_QUEUE = 3;
+
 export interface AgentDependencies {
   stt: SttAdapter;
   llm: LlmAdapter;
@@ -67,6 +70,11 @@ interface TurnRecord {
   text: string;
 }
 
+interface QueuedUtterance {
+  text: string;
+  sttLatencyMs?: number;
+}
+
 /**
  * InterviewAgent — joins a LiveKit room as the AI participant using @livekit/rtc-node.
  *
@@ -89,6 +97,8 @@ export class InterviewAgent {
   private sttStream: SttStream | null = null;
   private audioStreamReader: AudioStream | null = null;
   private isProcessing = false;
+  private utteranceQueue: QueuedUtterance[] = [];
+  private currentTrack: RemoteTrack | null = null;
 
   // Audio publishing resources
   private audioSource: AudioSource | null = null;
@@ -115,7 +125,6 @@ export class InterviewAgent {
   async connect(livekitUrl: string, apiKey: string, apiSecret: string): Promise<void> {
     const identity = `agent_${this.session.sessionId}`;
 
-    // Mint token for agent
     const at = new AccessToken(apiKey, apiSecret, {
       identity,
       ttl: '4h',
@@ -131,14 +140,12 @@ export class InterviewAgent {
 
     const token = await at.toJwt();
 
-    // Set up event handlers before connecting
     this.setupRoomEvents();
 
     logger.info({ room: this.session.roomName, identity }, 'Connecting to LiveKit room');
     await this.room.connect(livekitUrl, token);
     logger.info('Connected to LiveKit room');
 
-    // Create and publish AudioSource for AI voice
     await this.setupAudioPublishing();
 
     this.setPhase(InterviewPhase.WAITING);
@@ -157,7 +164,6 @@ export class InterviewAgent {
   }
 
   private setupRoomEvents(): void {
-    // When candidate publishes mic track, start STT
     this.room.on(
       RoomEvent.TrackSubscribed,
       (track: RemoteTrack, publication: RemoteTrackPublication, participant: RemoteParticipant) => {
@@ -166,12 +172,12 @@ export class InterviewAgent {
           participant.identity.startsWith('candidate_')
         ) {
           logger.info({ participant: participant.identity }, 'Candidate audio track subscribed');
+          this.currentTrack = track;
           this.handleCandidateAudio(track);
         }
       },
     );
 
-    // When candidate joins
     this.room.on(RoomEvent.ParticipantConnected, (participant: RemoteParticipant) => {
       if (participant.identity.startsWith('candidate_')) {
         logger.info({ participant: participant.identity }, 'Candidate joined');
@@ -181,7 +187,6 @@ export class InterviewAgent {
       }
     });
 
-    // Data messages from candidate
     this.room.on(
       RoomEvent.DataReceived,
       (data: Uint8Array, participant?: RemoteParticipant) => {
@@ -196,11 +201,9 @@ export class InterviewAgent {
       },
     );
 
-    // Handle disconnections
     this.room.on(RoomEvent.ParticipantDisconnected, (participant: RemoteParticipant) => {
       if (participant.identity.startsWith('candidate_')) {
         logger.warn('Candidate disconnected');
-        // Allow 60s for reconnect before ending
         setTimeout(() => {
           if (this.phase !== InterviewPhase.COMPLETED && this.phase !== InterviewPhase.CANCELLED) {
             const candidates = Array.from(this.room.remoteParticipants.values()).filter((p) =>
@@ -222,9 +225,36 @@ export class InterviewAgent {
 
   /**
    * Handle candidate audio using AudioStream from @livekit/rtc-node.
-   * Iterates raw PCM audio frames and pushes them to the STT adapter.
+   * Implements STT stream reconnection on error.
    */
   private handleCandidateAudio(track: RemoteTrack): void {
+    this.createSttStream();
+
+    let sttStartTime = 0;
+    const turnId = randomUUID();
+
+    // Create an AudioStream to iterate raw PCM frames from the remote track
+    this.audioStreamReader = new AudioStream(track);
+
+    (async () => {
+      try {
+        for await (const frame of this.audioStreamReader!) {
+          sttStartTime = sttStartTime || Date.now();
+          const pcmBuffer = Buffer.from(
+            frame.data.buffer,
+            frame.data.byteOffset,
+            frame.data.byteLength,
+          );
+          this.sttStream?.pushAudio(pcmBuffer);
+        }
+      } catch (err) {
+        logger.error({ err }, 'AudioStream iteration error');
+      }
+    })();
+  }
+
+  /** Create or recreate STT stream with reconnection on error. */
+  private createSttStream(): void {
     this.sttStream = this.deps.stt.createStream({
       sampleRate: 48000,
       channels: 1,
@@ -245,6 +275,7 @@ export class InterviewAgent {
         });
       } else {
         const sttLatencyMs = sttStartTime ? Date.now() - sttStartTime : undefined;
+        sttStartTime = 0;
 
         this.sendDataMessage({
           type: 'final_transcript',
@@ -261,47 +292,48 @@ export class InterviewAgent {
     });
 
     this.sttStream.onError((err) => {
-      logger.error({ err }, 'STT error');
+      logger.error({ err }, 'STT error — attempting reconnection');
       this.sendDataMessage({
         type: 'error',
         code: 'STT_ERROR',
-        message: 'Speech recognition error',
+        message: 'Speech recognition error, reconnecting...',
         recoverable: true,
         t: Date.now(),
       });
-    });
 
-    // Create an AudioStream to iterate raw PCM frames from the remote track
-    this.audioStreamReader = new AudioStream(track);
-
-    // Async iterate over audio frames
-    (async () => {
-      try {
-        for await (const frame of this.audioStreamReader!) {
-          sttStartTime = sttStartTime || Date.now();
-          // frame.data is an Int16Array of PCM samples
-          const pcmBuffer = Buffer.from(
-            frame.data.buffer,
-            frame.data.byteOffset,
-            frame.data.byteLength,
-          );
-          this.sttStream?.pushAudio(pcmBuffer);
+      // Reconnect STT stream
+      setTimeout(() => {
+        try {
+          this.createSttStream();
+          logger.info('STT stream reconnected');
+        } catch (reconnectErr) {
+          logger.error({ err: reconnectErr }, 'STT reconnection failed');
         }
-      } catch (err) {
-        logger.error({ err }, 'AudioStream iteration error');
-      }
-    })();
+      }, 500);
+    });
   }
 
-  /** Process a final candidate utterance through the LLM -> TTS pipeline. */
+  /**
+   * Process a final candidate utterance through the LLM -> TTS pipeline.
+   * Implements utterance queue: if already processing, queue the utterance.
+   */
   private async processCandidateUtterance(text: string, sttLatencyMs?: number): Promise<void> {
     if (this.isProcessing) {
-      logger.debug('Already processing, queuing utterance');
+      // Queue utterance instead of dropping
+      if (this.utteranceQueue.length < MAX_UTTERANCE_QUEUE) {
+        logger.debug({ queueSize: this.utteranceQueue.length + 1 }, 'Queuing utterance');
+        this.utteranceQueue.push({ text, sttLatencyMs });
+      } else {
+        logger.warn('Utterance queue full, dropping oldest');
+        this.utteranceQueue.shift();
+        this.utteranceQueue.push({ text, sttLatencyMs });
+      }
       return;
     }
 
     this.isProcessing = true;
     const e2eStart = Date.now();
+    let turnCompleted = false;
 
     try {
       // Record candidate turn
@@ -358,7 +390,6 @@ export class InterviewAgent {
       let aiFullText = '';
       const turnId = randomUUID();
 
-      // Collect streamed tokens -> accumulate for TTS sentence chunks
       let sentenceBuffer = '';
       const sentenceEndRegex = /[.!?]\s*/;
 
@@ -369,7 +400,6 @@ export class InterviewAgent {
         aiFullText += token.text;
         sentenceBuffer += token.text;
 
-        // Send partial AI text via data channel
         this.sendDataMessage({
           type: 'ai_text',
           turnId,
@@ -377,7 +407,6 @@ export class InterviewAgent {
           t: Date.now(),
         });
 
-        // When we have a complete sentence, start TTS for that chunk
         if (sentenceEndRegex.test(sentenceBuffer)) {
           const sentenceToSpeak = sentenceBuffer.trim();
           sentenceBuffer = '';
@@ -392,7 +421,8 @@ export class InterviewAgent {
         await this.speakText(sentenceBuffer.trim());
       }
 
-      // Record AI turn
+      // Record AI turn — mark as completed
+      turnCompleted = true;
       this.turns.push({ role: 'AI', text: aiFullText });
       this.currentQuestionIndex++;
 
@@ -417,15 +447,32 @@ export class InterviewAgent {
       }
     } catch (err) {
       logger.error({ err }, 'Error processing utterance');
+
+      // If turn was not completed, don't increment question index
+      if (!turnCompleted) {
+        logger.info('Turn not completed due to error, question index unchanged');
+      }
+
       this.sendDataMessage({
         type: 'error',
         code: 'PROCESSING_ERROR',
-        message: 'Error generating response',
+        message: 'Error generating response. Retrying...',
         recoverable: true,
         t: Date.now(),
       });
+
+      // Signal candidate can speak again
+      this.sendStateMessage(SpeakingParty.NONE);
     } finally {
       this.isProcessing = false;
+
+      // Drain utterance queue
+      if (this.utteranceQueue.length > 0) {
+        const next = this.utteranceQueue.shift()!;
+        logger.debug({ remaining: this.utteranceQueue.length }, 'Draining utterance queue');
+        // Process next queued utterance (async, don't await to avoid blocking)
+        this.processCandidateUtterance(next.text, next.sttLatencyMs);
+      }
     }
   }
 
@@ -448,10 +495,8 @@ export class InterviewAgent {
           firstChunk = false;
         }
 
-        // Accumulate PCM data
         pcmBuffer = Buffer.concat([pcmBuffer, audioChunk]);
 
-        // Publish in 20ms frames (TTS_SAMPLES_PER_FRAME * 2 bytes per sample)
         const frameSizeBytes = TTS_SAMPLES_PER_FRAME * 2;
         while (pcmBuffer.length >= frameSizeBytes) {
           const frameData = pcmBuffer.subarray(0, frameSizeBytes);
@@ -526,11 +571,9 @@ export class InterviewAgent {
 
     this.onSessionComplete?.();
 
-    // Cleanup
     await this.sttStream?.close();
     this.audioStreamReader?.close();
 
-    // Disconnect after a brief delay
     setTimeout(() => {
       this.room.disconnect();
     }, 2000);

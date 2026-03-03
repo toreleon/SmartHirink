@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { ModelConfigCreateSchema } from '@smarthirink/core';
 import prisma from '../lib/prisma.js';
 
 export async function modelConfigRoutes(app: FastifyInstance) {
@@ -14,19 +15,19 @@ export async function modelConfigRoutes(app: FastifyInstance) {
     return config;
   });
 
-  // ─── Create Model Config ────────────────────────────────
+  // ─── Create Model Config (validated) ────────────────────
   app.post('/model-configs', { onRequest: [app.authenticate] }, async (req, reply) => {
     const payload = req.user as { role: string };
     if (payload.role !== 'ADMIN') {
       return reply.status(403).send({ error: 'Admin only' });
     }
 
-    const body = req.body as Record<string, unknown>;
-    const config = await prisma.modelConfig.create({ data: body as any });
+    const body = ModelConfigCreateSchema.parse(req.body);
+    const config = await prisma.modelConfig.create({ data: body });
     return reply.status(201).send(config);
   });
 
-  // ─── Update Model Config ────────────────────────────────
+  // ─── Update Model Config (validated) ────────────────────
   app.put('/model-configs/:id', { onRequest: [app.authenticate] }, async (req, reply) => {
     const payload = req.user as { role: string };
     if (payload.role !== 'ADMIN') {
@@ -34,14 +35,14 @@ export async function modelConfigRoutes(app: FastifyInstance) {
     }
 
     const { id } = req.params as { id: string };
-    const body = req.body as Record<string, unknown>;
+    const body = ModelConfigCreateSchema.partial().parse(req.body);
 
     // If setting as default, unset others
     if (body.isDefault) {
       await prisma.modelConfig.updateMany({ data: { isDefault: false } });
     }
 
-    const config = await prisma.modelConfig.update({ where: { id }, data: body as any });
+    const config = await prisma.modelConfig.update({ where: { id }, data: body });
     return config;
   });
 }

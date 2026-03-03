@@ -1,59 +1,87 @@
+import Link from 'next/link';
+import { Mic, BarChart3, FileText, ArrowRight } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+
+const features = [
+  {
+    icon: Mic,
+    title: 'Real-time AI Interviews',
+    description:
+      'Voice-based conversations with an AI interviewer powered by WebRTC. Natural, adaptive questioning tailored to each role.',
+  },
+  {
+    icon: BarChart3,
+    title: 'Smart Evaluation',
+    description:
+      'Automated scoring against customizable rubrics with evidence-backed reasoning from the interview transcript.',
+  },
+  {
+    icon: FileText,
+    title: 'Detailed Reports',
+    description:
+      'Comprehensive PDF reports with strengths, weaknesses, criterion breakdowns, and hiring recommendations.',
+  },
+];
+
 export default function HomePage() {
   return (
-    <div className="max-w-4xl mx-auto px-6 py-16">
-      <div className="text-center">
-        <h1 className="text-4xl font-bold text-slate-900 mb-4">
-          SmartHirink
+    <div className="flex flex-col">
+      {/* Hero */}
+      <section className="container py-24 md:py-32 text-center">
+        <h1 className="text-4xl font-bold tracking-tight sm:text-5xl md:text-6xl">
+          AI-powered interviews
+          <br />
+          <span className="text-primary">built for enterprise</span>
         </h1>
-        <p className="text-xl text-slate-600 mb-8">
-          Nền tảng phỏng vấn ảo AI thông minh cho tuyển dụng IT
+        <p className="mx-auto mt-6 max-w-2xl text-lg text-muted-foreground">
+          Streamline your technical hiring with intelligent virtual interviews. Consistent,
+          unbiased, and scalable candidate assessment powered by AI.
         </p>
-        <div className="flex gap-4 justify-center">
-          <a
-            href="/login"
-            className="px-6 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition"
-          >
-            Đăng nhập
-          </a>
-          <a
-            href="/register"
-            className="px-6 py-3 border border-primary-600 text-primary-600 rounded-lg hover:bg-primary-50 transition"
-          >
-            Đăng ký
-          </a>
+        <div className="mt-10 flex items-center justify-center gap-4">
+          <Button size="lg" asChild>
+            <Link href="/register">
+              Get started
+              <ArrowRight className="ml-2 h-4 w-4" />
+            </Link>
+          </Button>
+          <Button variant="outline" size="lg" asChild>
+            <Link href="/login">Sign in</Link>
+          </Button>
         </div>
-      </div>
+      </section>
 
-      <div className="mt-16 grid md:grid-cols-3 gap-8">
-        <div className="bg-white p-6 rounded-xl shadow-sm border">
-          <div className="text-2xl mb-3">🎙️</div>
-          <h3 className="font-semibold text-lg mb-2">Phỏng vấn Real-time</h3>
-          <p className="text-slate-600 text-sm">
-            Trao đổi trực tiếp bằng giọng nói với AI phỏng vấn viên qua công nghệ WebRTC.
-          </p>
+      {/* Features */}
+      <section className="container pb-24">
+        <div className="grid gap-6 md:grid-cols-3">
+          {features.map((feature) => {
+            const Icon = feature.icon;
+            return (
+              <Card key={feature.title} className="relative overflow-hidden">
+                <CardHeader>
+                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
+                    <Icon className="h-5 w-5 text-primary" />
+                  </div>
+                  <CardTitle className="text-lg">{feature.title}</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground">{feature.description}</p>
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
-        <div className="bg-white p-6 rounded-xl shadow-sm border">
-          <div className="text-2xl mb-3">📊</div>
-          <h3 className="font-semibold text-lg mb-2">Đánh giá Thông minh</h3>
-          <p className="text-slate-600 text-sm">
-            AI tự động chấm điểm theo rubric với bằng chứng cụ thể từ transcript.
-          </p>
-        </div>
-        <div className="bg-white p-6 rounded-xl shadow-sm border">
-          <div className="text-2xl mb-3">📋</div>
-          <h3 className="font-semibold text-lg mb-2">Báo cáo Chi tiết</h3>
-          <p className="text-slate-600 text-sm">
-            Xuất báo cáo PDF đầy đủ với điểm mạnh, điểm yếu, và khuyến nghị.
-          </p>
-        </div>
-      </div>
+      </section>
 
-      <div className="mt-12 bg-amber-50 border border-amber-200 rounded-lg p-4 text-center">
-        <p className="text-amber-800 text-sm">
-          ⚠️ Lưu ý: Hệ thống sử dụng AI để hỗ trợ đánh giá. Kết quả chỉ mang tính tham khảo,
-          quyết định tuyển dụng cuối cùng thuộc về nhà tuyển dụng.
-        </p>
-      </div>
+      {/* Disclaimer */}
+      <section className="container pb-16">
+        <div className="rounded-lg border bg-muted/50 p-4 text-center">
+          <p className="text-sm text-muted-foreground">
+            AI-powered evaluation results are advisory only. Final hiring decisions should
+            always be made by qualified human recruiters.
+          </p>
+        </div>
+      </section>
     </div>
   );
 }
