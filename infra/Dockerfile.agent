@@ -1,5 +1,8 @@
-FROM node:20-alpine AS base
+FROM node:20-slim AS base
 WORKDIR /app
+
+# @livekit/rtc-node requires glibc (not musl/alpine)
+RUN apt-get update && apt-get install -y --no-install-recommends openssl && rm -rf /var/lib/apt/lists/*
 
 COPY package.json package-lock.json* ./
 COPY packages/core/package.json ./packages/core/
@@ -17,8 +20,9 @@ RUN npm run build --workspace=packages/core && \
     npx prisma generate --schema=apps/api/prisma/schema.prisma && \
     npm run build --workspace=apps/agent
 
-FROM node:20-alpine
+FROM node:20-slim
 WORKDIR /app
 ENV NODE_ENV=production
+RUN apt-get update && apt-get install -y --no-install-recommends openssl && rm -rf /var/lib/apt/lists/*
 COPY --from=base /app /app
 CMD ["node", "apps/agent/dist/main.js"]

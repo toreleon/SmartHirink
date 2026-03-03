@@ -1,6 +1,9 @@
 FROM node:20-alpine AS base
 WORKDIR /app
 
+# Prisma needs openssl on Alpine
+RUN apk add --no-cache openssl
+
 # Install all workspace deps
 COPY package.json package-lock.json* ./
 COPY packages/core/package.json ./packages/core/
@@ -20,6 +23,7 @@ RUN npm run build --workspace=packages/core && \
 # ── production image ─────────────────────────────────────────────────────────
 FROM node:20-alpine
 WORKDIR /app
+RUN apk add --no-cache openssl
 ENV NODE_ENV=production
 COPY --from=base /app /app
 EXPOSE 4000
