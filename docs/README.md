@@ -32,13 +32,13 @@ SmartHirink is a full-stack TypeScript platform for conducting automated AI-powe
 ```
 SmartHirink/
 ├── packages/
-│   ├── core/         # Shared types, Zod schemas, adapter interfaces, prompts
+│   ├── core/         # Shared types, Zod schemas, adapter interfaces, prompts, data-channel helpers
 │   └── rag/          # Chunker, pgvector store, context manager
 ├── apps/
-│   ├── api/          # Fastify REST API + Prisma ORM
-│   ├── agent/        # LiveKit AI interview agent (STT→LLM→TTS)
-│   ├── worker/       # BullMQ workers (evaluation, PDF reports)
-│   └── web/          # Next.js 14 frontend
+│   ├── api/          # Fastify REST API + Prisma ORM (port 4000)
+│   ├── agent/        # LiveKit AI interview agent (STT→LLM→TTS) using @livekit/rtc-node
+│   ├── worker/       # BullMQ workers (evaluation, turn-persist, PDF reports)
+│   └── web/          # Next.js 14 frontend (port 3000)
 ├── infra/            # Docker Compose, Dockerfiles, LiveKit config
 └── docs/             # This documentation
 ```
@@ -47,12 +47,13 @@ SmartHirink/
 
 | Layer | Technology |
 |-------|-----------|
-| Runtime | Node.js 20+ / TypeScript |
+| Runtime | Node.js 20+ / TypeScript (ES2022, NodeNext) |
 | Frontend | Next.js 14, Tailwind CSS, Zustand, LiveKit Client SDK |
 | Backend | Fastify, @fastify/jwt, @fastify/cors |
 | Database | PostgreSQL 16 + pgvector (via Prisma ORM) |
 | Queue | Redis + BullMQ |
 | Real-time | LiveKit (WebRTC audio tracks + data channels) |
+| Agent SDK | @livekit/rtc-node (Node.js server-side WebRTC) |
 | STT | Deepgram (Nova-2, Vietnamese + code-switching) |
 | LLM | OpenAI GPT-4o (streaming completions) |
 | TTS | OpenAI TTS-1 (streaming PCM audio) |
@@ -83,9 +84,14 @@ This starts: PostgreSQL (pgvector), Redis, LiveKit server, API, Agent, Worker, W
 
 ```bash
 npm install                        # Install all workspace deps
+
+# Start infra services only
+cd infra && docker compose -f docker-compose.dev.yml up -d && cd ..
+
+# Run migrations
 npx prisma migrate dev --schema=apps/api/prisma/schema.prisma
 
-# Terminal 1: API
+# Terminal 1: API (port 4000)
 npm run dev --workspace=apps/api
 
 # Terminal 2: Agent
@@ -94,7 +100,7 @@ npm run dev --workspace=apps/agent
 # Terminal 3: Worker
 npm run dev --workspace=apps/worker
 
-# Terminal 4: Web
+# Terminal 4: Web (port 3000)
 npm run dev --workspace=apps/web
 ```
 
@@ -106,18 +112,16 @@ npm run dev --workspace=apps/web
 2. **WAITING** — Recruiter starts session → LiveKit room is provisioned
 3. **INTRO** — Candidate joins room → Agent sends introduction
 4. **QUESTIONING** — Multi-turn conversation following scenario topics
-5. **WRAP_UP** — Agent asks if candidate has questions
-6. **COMPLETED** — Session ends → evaluation job enqueued
-7. **EVALUATING** → ScoreCard created → report job enqueued
-8. **REPORTED** — PDF report ready for download
+5. **WRAP_UP** — Agent reaches question count → sends outro message
+6. **COMPLETED** — Session ends → evaluation job enqueued via BullMQ
 
 ### Real-time Pipeline (per turn)
 
 ```
-Candidate Mic → LiveKit Audio Track → Agent
-  → STT (Deepgram streaming) → Final Transcript
+Candidate Mic → LiveKit Audio Track → Agent (AudioStream iterator)
+  → STT (Deepgram streaming WebSocket) → Final Transcript
   → LLM (GPT-4o streaming) → Sentence boundary split
-  → TTS (OpenAI streaming) → PCM audio → LiveKit Audio Track → Candidate Speaker
+  → TTS (OpenAI streaming) → PCM frames → AudioSource.captureFrame() → LiveKit Audio Track
   → Data Channel messages (partial_transcript, final_transcript, ai_text, state)
 ```
 
@@ -128,6 +132,7 @@ Candidate Mic → LiveKit Audio Track → Agent
 - Rubric-based scoring with evidence + reasoning per criterion
 - Overall score, recommendation (STRONG_YES / YES / MAYBE / NO / STRONG_NO)
 - Strengths & weaknesses identification
+- Automatic PDF report generation via `report` queue
 
 ### Adapter Pattern
 
@@ -140,11 +145,15 @@ All AI providers are abstracted behind interfaces (`SttAdapter`, `LlmAdapter`, `
 | POST | `/api/auth/register` | — | Register user |
 | POST | `/api/auth/login` | — | Login, get JWT |
 | GET | `/api/auth/me` | JWT | Get current user |
-| GET/POST | `/api/candidates` | JWT | List/create candidate profiles |
-| GET/PUT | `/api/candidates/:id` | JWT | Get/update profile |
+| POST | `/api/candidates/profile` | JWT | Create/update candidate profile |
+| GET | `/api/candidates/profile` | JWT | Get own profile |
+| GET | `/api/candidates/:id` | JWT | Get candidate by ID |
+| GET | `/api/candidates` | JWT | List candidates |
 | GET/POST | `/api/scenarios` | JWT | List/create scenarios |
 | GET/PUT/DEL | `/api/scenarios/:id` | JWT | CRUD scenario |
-| POST | `/api/scenarios/:id/rubrics` | JWT (RECRUITER+) | Create rubric |
+| POST | `/api/rubrics` | JWT (RECRUITER+) | Create rubric |
+| GET | `/api/rubrics/:id` | JWT | Get rubric |
+| GET | `/api/scenarios/:id/rubrics` | JWT | List rubrics for scenario |
 | GET/POST | `/api/interviews` | JWT | List/create sessions |
 | GET | `/api/interviews/:id` | JWT | Get session detail |
 | POST | `/api/interviews/:id/start` | JWT (RECRUITER+) | Start session |
@@ -154,39 +163,42 @@ All AI providers are abstracted behind interfaces (`SttAdapter`, `LlmAdapter`, `
 | GET | `/api/interviews/:id/report` | JWT | Get PDF report |
 | POST | `/api/interviews/token` | JWT | Get LiveKit token |
 | POST | `/api/webhooks/livekit` | — | LiveKit webhook |
-| GET/POST | `/api/model-config` | JWT (ADMIN) | Manage model configs |
+| GET/POST/PUT | `/api/model-configs` | JWT (ADMIN) | Manage model configs |
+| GET | `/health` | — | Health check |
 
 ## Data Channel Messages
 
 ### Agent → Client
 
-| Type | Payload |
-|------|---------|
-| `partial_transcript` | `{ text, isFinal: false }` |
-| `final_transcript` | `{ text, isFinal: true }` |
-| `ai_text` | `{ text, isFinal }` |
-| `state` | `{ phase, currentTopic?, turnIndex }` |
-| `error` | `{ code, message }` |
-| `session_complete` | `{ sessionId, summary }` |
+| Type | Fields |
+|------|--------|
+| `partial_transcript` | `{ turnId, text, isFinal: false, t }` |
+| `final_transcript` | `{ turnId, text, isFinal: true, t }` |
+| `ai_text` | `{ turnId, text, t }` |
+| `state` | `{ phase, speaking: { who }, vad, t }` |
+| `error` | `{ code, message, recoverable, t }` |
+| `session_complete` | `{ sessionId, t }` |
 
 ### Client → Agent
 
-| Type | Payload |
-|------|---------|
-| `client_event` | `{ action: "end_interview" \| "skip_question" \| "repeat" }` |
-| `candidate_metadata_update` | `{ notes? }` |
+| Type | Fields |
+|------|--------|
+| `client_event` | `{ action: 'start' \| 'pause' \| 'stop' \| 'ping', t }` |
+| `candidate_metadata_update` | `{ languageHint?, t }` |
+
+All messages are validated using Zod discriminated union schemas from `@smarthirink/core`. Use `encodeAgentMessage()` / `decodeAgentMessage()` and `encodeClientMessage()` / `decodeClientMessage()` helpers from `@smarthirink/core/data-channel`.
 
 ## Roles & Permissions
 
 | Action | ADMIN | RECRUITER | CANDIDATE |
 |--------|:-----:|:---------:|:---------:|
-| Manage users | ✅ | ❌ | ❌ |
-| Create scenarios/rubrics | ✅ | ✅ | ❌ |
-| Create interviews | ✅ | ✅ | ❌ |
-| Start interview | ✅ | ✅ | ❌ |
-| Join interview | ✅ | ✅ | ✅ (own) |
-| View results | ✅ | ✅ | ✅ (own) |
-| Model config | ✅ | ❌ | ❌ |
+| Manage users | yes | no | no |
+| Create scenarios/rubrics | yes | yes | no |
+| Create interviews | yes | yes | no |
+| Start interview | yes | yes | no |
+| Join interview | yes | yes | yes (own) |
+| View results | yes | yes | yes (own) |
+| Model config | yes | no | no |
 
 ## Ethics & Transparency
 
@@ -208,3 +220,5 @@ See `.env.example` for the complete list. Key variables:
 - `OPENAI_API_KEY` — For LLM, TTS, embeddings
 - `DEEPGRAM_API_KEY` — For STT
 - `STT_PROVIDER`, `LLM_PROVIDER`, `TTS_PROVIDER` — Provider selection
+- `PORT` — API server port (default: 4000)
+- `APP_URL` — Frontend URL (default: http://localhost:3000)

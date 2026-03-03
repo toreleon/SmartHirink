@@ -47,6 +47,7 @@ async function main() {
 
   // ─── Health check ─────────────────────────────────────
   app.get('/health', async () => ({ status: 'ok', timestamp: new Date().toISOString() }));
+  app.get('/api/health', async () => ({ status: 'ok', timestamp: new Date().toISOString() }));
 
   // ─── Routes ───────────────────────────────────────────
   await app.register(authRoutes, { prefix: '/api' });

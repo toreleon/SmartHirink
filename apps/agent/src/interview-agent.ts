@@ -2,12 +2,17 @@ import {
   Room,
   RoomEvent,
   LocalAudioTrack,
-  RemoteTrackPublication,
-  RemoteParticipant,
-  Track,
-  DataPacket_Kind,
-  LocalParticipant,
-} from 'livekit-client';
+  AudioSource,
+  AudioFrame,
+  AudioStream,
+  TrackPublishOptions,
+  TrackKind,
+  TrackSource,
+  type RemoteTrack,
+  type RemoteTrackPublication,
+  type RemoteParticipant,
+  type LocalParticipant,
+} from '@livekit/rtc-node';
 import { AccessToken } from 'livekit-server-sdk';
 import pino from 'pino';
 import { randomUUID } from 'crypto';
@@ -29,6 +34,12 @@ import {
 import type { ContextManager } from '@smarthirink/rag';
 
 const logger = pino({ name: 'interview-agent' });
+
+// TTS output is 24kHz 16-bit mono PCM
+const TTS_SAMPLE_RATE = 24000;
+const TTS_CHANNELS = 1;
+const TTS_FRAME_DURATION_MS = 20;
+const TTS_SAMPLES_PER_FRAME = (TTS_SAMPLE_RATE * TTS_FRAME_DURATION_MS) / 1000;
 
 export interface AgentDependencies {
   stt: SttAdapter;
@@ -57,15 +68,16 @@ interface TurnRecord {
 }
 
 /**
- * InterviewAgent — joins a LiveKit room as the AI participant.
+ * InterviewAgent — joins a LiveKit room as the AI participant using @livekit/rtc-node.
  *
  * Lifecycle:
  * 1. Connect to room as `agent_<sessionId>`
- * 2. Wait for candidate to join and publish mic
- * 3. Subscribe to candidate mic → pipe audio into STT stream
- * 4. On STT final → run LLM (streamed) → run TTS (streamed) → publish audio
- * 5. All transcript/state messages sent via data channel
- * 6. Persist turns to DB asynchronously (via BullMQ or direct)
+ * 2. Publish an AudioSource track for AI voice output
+ * 3. Wait for candidate to join and publish mic
+ * 4. Subscribe to candidate mic -> pipe raw PCM into STT stream via AudioStream
+ * 5. On STT final -> run LLM (streamed) -> run TTS (streamed) -> publish audio frames
+ * 6. All transcript/state messages sent via data channel
+ * 7. Persist turns to DB asynchronously (via BullMQ)
  */
 export class InterviewAgent {
   private room: Room;
@@ -75,8 +87,12 @@ export class InterviewAgent {
   private currentQuestionIndex = 0;
   private phase: InterviewPhase = InterviewPhase.CREATED;
   private sttStream: SttStream | null = null;
+  private audioStreamReader: AudioStream | null = null;
   private isProcessing = false;
-  private abortController: AbortController | null = null;
+
+  // Audio publishing resources
+  private audioSource: AudioSource | null = null;
+  private localAudioTrack: LocalAudioTrack | null = null;
 
   // Callbacks for external persistence (non-blocking)
   public onTurnComplete?: (turn: {
@@ -90,10 +106,7 @@ export class InterviewAgent {
   public onSessionComplete?: () => void;
 
   constructor(deps: AgentDependencies, session: SessionInfo) {
-    this.room = new Room({
-      adaptiveStream: true,
-      dynacast: true,
-    });
+    this.room = new Room();
     this.deps = deps;
     this.session = session;
   }
@@ -125,23 +138,41 @@ export class InterviewAgent {
     await this.room.connect(livekitUrl, token);
     logger.info('Connected to LiveKit room');
 
+    // Create and publish AudioSource for AI voice
+    await this.setupAudioPublishing();
+
     this.setPhase(InterviewPhase.WAITING);
+  }
+
+  /** Set up the AudioSource + LocalAudioTrack for publishing TTS audio. */
+  private async setupAudioPublishing(): Promise<void> {
+    this.audioSource = new AudioSource(TTS_SAMPLE_RATE, TTS_CHANNELS);
+    this.localAudioTrack = LocalAudioTrack.createAudioTrack('ai-voice', this.audioSource);
+
+    const publishOptions = new TrackPublishOptions();
+    publishOptions.source = TrackSource.SOURCE_MICROPHONE;
+
+    await this.room.localParticipant!.publishTrack(this.localAudioTrack, publishOptions);
+    logger.info('Published AI audio track');
   }
 
   private setupRoomEvents(): void {
     // When candidate publishes mic track, start STT
-    this.room.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
-      if (
-        track.kind === Track.Kind.Audio &&
-        participant.identity.startsWith('candidate_')
-      ) {
-        logger.info({ participant: participant.identity }, 'Candidate audio track subscribed');
-        this.handleCandidateAudio(track as any);
-      }
-    });
+    this.room.on(
+      RoomEvent.TrackSubscribed,
+      (track: RemoteTrack, publication: RemoteTrackPublication, participant: RemoteParticipant) => {
+        if (
+          track.kind === TrackKind.KIND_AUDIO &&
+          participant.identity.startsWith('candidate_')
+        ) {
+          logger.info({ participant: participant.identity }, 'Candidate audio track subscribed');
+          this.handleCandidateAudio(track);
+        }
+      },
+    );
 
     // When candidate joins
-    this.room.on(RoomEvent.ParticipantConnected, (participant) => {
+    this.room.on(RoomEvent.ParticipantConnected, (participant: RemoteParticipant) => {
       if (participant.identity.startsWith('candidate_')) {
         logger.info({ participant: participant.identity }, 'Candidate joined');
         if (this.phase === InterviewPhase.WAITING) {
@@ -151,19 +182,22 @@ export class InterviewAgent {
     });
 
     // Data messages from candidate
-    this.room.on(RoomEvent.DataReceived, (data, participant) => {
-      if (participant?.identity.startsWith('candidate_')) {
-        try {
-          const msg = JSON.parse(new TextDecoder().decode(data));
-          this.handleClientMessage(msg);
-        } catch {
-          // Ignore malformed messages
+    this.room.on(
+      RoomEvent.DataReceived,
+      (data: Uint8Array, participant?: RemoteParticipant) => {
+        if (participant?.identity.startsWith('candidate_')) {
+          try {
+            const msg = JSON.parse(new TextDecoder().decode(data));
+            this.handleClientMessage(msg);
+          } catch {
+            // Ignore malformed messages
+          }
         }
-      }
-    });
+      },
+    );
 
     // Handle disconnections
-    this.room.on(RoomEvent.ParticipantDisconnected, (participant) => {
+    this.room.on(RoomEvent.ParticipantDisconnected, (participant: RemoteParticipant) => {
       if (participant.identity.startsWith('candidate_')) {
         logger.warn('Candidate disconnected');
         // Allow 60s for reconnect before ending
@@ -186,8 +220,11 @@ export class InterviewAgent {
     });
   }
 
-  /** Handle candidate audio — pipe into STT. */
-  private handleCandidateAudio(track: any): void {
+  /**
+   * Handle candidate audio using AudioStream from @livekit/rtc-node.
+   * Iterates raw PCM audio frames and pushes them to the STT adapter.
+   */
+  private handleCandidateAudio(track: RemoteTrack): void {
     this.sttStream = this.deps.stt.createStream({
       sampleRate: 48000,
       channels: 1,
@@ -195,12 +232,10 @@ export class InterviewAgent {
     });
 
     let sttStartTime = 0;
-    let partialText = '';
     const turnId = randomUUID();
 
     this.sttStream.onResult((result: SttResult) => {
       if (!result.isFinal) {
-        partialText = result.text;
         this.sendDataMessage({
           type: 'partial_transcript',
           turnId,
@@ -222,7 +257,6 @@ export class InterviewAgent {
         if (result.text.trim()) {
           this.processCandidateUtterance(result.text.trim(), sttLatencyMs);
         }
-        partialText = '';
       }
     });
 
@@ -237,25 +271,29 @@ export class InterviewAgent {
       });
     });
 
-    // Pipe audio frames from WebRTC track to STT
-    // In livekit-client for Node, we attach an audio frame handler
-    const mediaStream = track.mediaStream;
-    if (mediaStream) {
-      // Use Web Audio API or direct PCM access
-      // For Node.js, we handle raw audio frames
-      const interval = setInterval(() => {
-        // This is a simplified representation.
-        // In production, use livekit's onAudioFrame callback or AudioStream.
-        // The actual implementation depends on the livekit-client Node.js binding.
-        sttStartTime = Date.now();
-      }, 20); // 20ms frame interval
+    // Create an AudioStream to iterate raw PCM frames from the remote track
+    this.audioStreamReader = new AudioStream(track);
 
-      // Store cleanup ref
-      (this as any)._audioInterval = interval;
-    }
+    // Async iterate over audio frames
+    (async () => {
+      try {
+        for await (const frame of this.audioStreamReader!) {
+          sttStartTime = sttStartTime || Date.now();
+          // frame.data is an Int16Array of PCM samples
+          const pcmBuffer = Buffer.from(
+            frame.data.buffer,
+            frame.data.byteOffset,
+            frame.data.byteLength,
+          );
+          this.sttStream?.pushAudio(pcmBuffer);
+        }
+      } catch (err) {
+        logger.error({ err }, 'AudioStream iteration error');
+      }
+    })();
   }
 
-  /** Process a final candidate utterance through the LLM → TTS pipeline. */
+  /** Process a final candidate utterance through the LLM -> TTS pipeline. */
   private async processCandidateUtterance(text: string, sttLatencyMs?: number): Promise<void> {
     if (this.isProcessing) {
       logger.debug('Already processing, queuing utterance');
@@ -280,7 +318,7 @@ export class InterviewAgent {
       // Update state: AI thinking
       this.sendStateMessage(SpeakingParty.AI);
 
-      // ─── RAG Context (non-blocking fetch) ───────────────
+      // --- RAG Context (non-blocking fetch) ---
       let ragContext = '';
       if (this.deps.contextManager) {
         try {
@@ -293,7 +331,7 @@ export class InterviewAgent {
         }
       }
 
-      // ─── LLM Streaming ─────────────────────────────────
+      // --- LLM Streaming ---
       const promptCtx: OrchestratorPromptContext = {
         position: this.session.position,
         level: this.session.level,
@@ -320,9 +358,9 @@ export class InterviewAgent {
       let aiFullText = '';
       const turnId = randomUUID();
 
-      // Collect streamed tokens → accumulate for TTS sentence chunks
+      // Collect streamed tokens -> accumulate for TTS sentence chunks
       let sentenceBuffer = '';
-      const sentenceEndRegex = /[.!?。！？]\s*/;
+      const sentenceEndRegex = /[.!?]\s*/;
 
       for await (const token of this.deps.llm.streamCompletion(messages)) {
         if (!llmTtftMs) {
@@ -344,7 +382,6 @@ export class InterviewAgent {
           const sentenceToSpeak = sentenceBuffer.trim();
           sentenceBuffer = '';
           if (sentenceToSpeak) {
-            // Fire-and-forget TTS for this sentence chunk (streaming)
             await this.speakText(sentenceToSpeak);
           }
         }
@@ -392,11 +429,17 @@ export class InterviewAgent {
     }
   }
 
-  /** Synthesize and publish audio for a text chunk. */
+  /** Synthesize and publish audio for a text chunk using AudioSource.captureFrame. */
   private async speakText(text: string): Promise<void> {
+    if (!this.audioSource) {
+      logger.warn('AudioSource not initialized, cannot speak');
+      return;
+    }
+
     try {
       const ttsStart = Date.now();
       let firstChunk = true;
+      let pcmBuffer = Buffer.alloc(0);
 
       for await (const audioChunk of this.deps.tts.synthesizeStream(text)) {
         if (firstChunk) {
@@ -404,29 +447,53 @@ export class InterviewAgent {
           logger.debug({ ttsFirstAudioMs }, 'TTS first audio chunk');
           firstChunk = false;
         }
-        // Publish audio chunk to room
-        // In production, create a LocalAudioTrack from PCM frames
-        // and publish it via room.localParticipant.publishTrack()
-        await this.publishAudioChunk(audioChunk);
+
+        // Accumulate PCM data
+        pcmBuffer = Buffer.concat([pcmBuffer, audioChunk]);
+
+        // Publish in 20ms frames (TTS_SAMPLES_PER_FRAME * 2 bytes per sample)
+        const frameSizeBytes = TTS_SAMPLES_PER_FRAME * 2;
+        while (pcmBuffer.length >= frameSizeBytes) {
+          const frameData = pcmBuffer.subarray(0, frameSizeBytes);
+          pcmBuffer = pcmBuffer.subarray(frameSizeBytes);
+
+          const samples = new Int16Array(
+            frameData.buffer,
+            frameData.byteOffset,
+            frameData.byteLength / 2,
+          );
+
+          const audioFrame = new AudioFrame(
+            samples,
+            TTS_SAMPLE_RATE,
+            TTS_CHANNELS,
+            TTS_SAMPLES_PER_FRAME,
+          );
+
+          await this.audioSource!.captureFrame(audioFrame);
+        }
+      }
+
+      // Flush any remaining partial frame (pad with silence)
+      if (pcmBuffer.length > 0) {
+        const padded = Buffer.alloc(TTS_SAMPLES_PER_FRAME * 2, 0);
+        pcmBuffer.copy(padded);
+        const samples = new Int16Array(
+          padded.buffer,
+          padded.byteOffset,
+          padded.byteLength / 2,
+        );
+        const audioFrame = new AudioFrame(
+          samples,
+          TTS_SAMPLE_RATE,
+          TTS_CHANNELS,
+          TTS_SAMPLES_PER_FRAME,
+        );
+        await this.audioSource!.captureFrame(audioFrame);
       }
     } catch (err) {
       logger.error({ err }, 'TTS error');
     }
-  }
-
-  /** Publish raw PCM audio chunk to the LiveKit room. */
-  private async publishAudioChunk(pcmData: Buffer): Promise<void> {
-    // In a real implementation, you'd maintain a persistent LocalAudioTrack
-    // and feed PCM frames into it via an AudioSource.
-    // This is a simplified placeholder showing the pattern:
-    //
-    // const audioSource = new AudioSource(24000, 1);
-    // const track = LocalAudioTrack.createAudioTrack('ai-voice', audioSource);
-    // await this.room.localParticipant.publishTrack(track);
-    // audioSource.captureFrame(new AudioFrame(pcmData, 24000, 1, pcmData.length / 2));
-    //
-    // For now, we log that we would publish.
-    logger.trace({ bytes: pcmData.length }, 'Publishing audio chunk');
   }
 
   /** Start the interview with an intro message. */
@@ -460,10 +527,8 @@ export class InterviewAgent {
     this.onSessionComplete?.();
 
     // Cleanup
-    this.sttStream?.close();
-    if ((this as any)._audioInterval) {
-      clearInterval((this as any)._audioInterval);
-    }
+    await this.sttStream?.close();
+    this.audioStreamReader?.close();
 
     // Disconnect after a brief delay
     setTimeout(() => {
@@ -483,7 +548,6 @@ export class InterviewAgent {
           logger.info('Client requested pause');
           break;
         case 'ping':
-          // Respond with state
           this.sendStateMessage(
             this.isProcessing ? SpeakingParty.AI : SpeakingParty.NONE,
           );
@@ -496,7 +560,7 @@ export class InterviewAgent {
   private sendDataMessage(msg: AgentDataMessage): void {
     try {
       const encoded = new TextEncoder().encode(JSON.stringify(msg));
-      this.room.localParticipant.publishData(encoded, { reliable: true });
+      this.room.localParticipant?.publishData(encoded, { reliable: true });
     } catch (err) {
       logger.warn({ err }, 'Failed to send data message');
     }
@@ -523,7 +587,8 @@ export class InterviewAgent {
 
   /** Graceful shutdown. */
   async disconnect(): Promise<void> {
-    this.sttStream?.close();
-    this.room.disconnect();
+    await this.sttStream?.close();
+    this.audioStreamReader?.close();
+    await this.room.disconnect();
   }
 }

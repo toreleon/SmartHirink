@@ -15,7 +15,7 @@ room:
   max_participants: 10
 webhook:
   urls:
-    - http://api:3001/api/webhooks/livekit
+    - http://api:4000/api/webhooks/livekit
   api_key: devkey
 turn:
   enabled: false

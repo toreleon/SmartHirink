@@ -14,8 +14,8 @@ const prisma = new PrismaClient();
 const redis = new IORedis(env.REDIS_URL, { maxRetriesPerRequest: null });
 
 // Queues for async work
-const evaluationQueue = new Queue('evaluation', { connection: redis });
-const turnPersistQueue = new Queue('turn-persist', { connection: redis });
+const evaluationQueue = new Queue('evaluation', { connection: redis as any });
+const turnPersistQueue = new Queue('turn-persist', { connection: redis as any });
 
 // Track active agents
 const activeAgents = new Map<string, InterviewAgent>();

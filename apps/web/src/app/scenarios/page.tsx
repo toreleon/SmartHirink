@@ -7,7 +7,7 @@ export default function ScenariosPage() {
   const [scenarios, setScenarios] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ title: '', position: '', level: 'JUNIOR', systemContext: '', topics: '' });
+  const [form, setForm] = useState({ title: '', position: '', level: 'JUNIOR', description: '', topics: '' });
   const [saving, setSaving] = useState(false);
 
   const loadScenarios = () => {
@@ -24,7 +24,7 @@ export default function ScenariosPage() {
         topics: form.topics.split(',').map((t: string) => t.trim()).filter(Boolean),
       });
       setShowForm(false);
-      setForm({ title: '', position: '', level: 'JUNIOR', systemContext: '', topics: '' });
+      setForm({ title: '', position: '', level: 'JUNIOR', description: '', topics: '' });
       loadScenarios();
     } catch (err: any) {
       alert(err.message);
@@ -93,8 +93,8 @@ export default function ScenariosPage() {
           <div>
             <label className="block text-sm font-medium mb-1">Ngữ cảnh hệ thống (tùy chọn)</label>
             <textarea
-              value={form.systemContext}
-              onChange={(e) => setForm({ ...form, systemContext: e.target.value })}
+              value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
               className="w-full px-3 py-2 border rounded-lg"
               rows={3}
               placeholder="Thêm ngữ cảnh cho AI phỏng vấn viên..."

@@ -143,8 +143,11 @@ class ApiClient {
   }
 
   // ─── Rubrics ───────────────────────────────────────────
-  async createRubric(data: any) {
-    return this.request<any>('/rubrics', { method: 'POST', body: JSON.stringify(data) });
+  async createRubric(scenarioId: string, data: { criteria: any[] }) {
+    return this.request<any>('/rubrics', {
+      method: 'POST',
+      body: JSON.stringify({ scenarioId, criteria: data.criteria }),
+    });
   }
 
   logout() {

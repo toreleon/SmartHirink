@@ -70,9 +70,19 @@ For production, LiveKit requires:
 
 ### Health Checks
 
-- API: `GET /api/health` → `{ status: "ok" }`
+- API: `GET /health` or `GET /api/health` → `{ status: "ok", timestamp: "..." }`
 - PostgreSQL: `pg_isready`
 - Redis: `redis-cli ping`
+
+### Port Configuration
+
+| Service | Default Port |
+|---------|-------------|
+| API | 4000 |
+| Web | 3000 |
+| LiveKit | 7880 (WS), 7881 (RTC TCP), 7882 (RTC UDP) |
+| PostgreSQL | 5432 |
+| Redis | 6379 |
 
 ## Scaling
 

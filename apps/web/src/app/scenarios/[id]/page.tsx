@@ -68,9 +68,9 @@ export default function ScenarioDetailPage() {
           </div>
         )}
 
-        {scenario.systemContext && (
+        {scenario.description && (
           <div className="bg-slate-50 rounded-lg p-3 text-sm text-slate-700">
-            {scenario.systemContext}
+            {scenario.description}
           </div>
         )}
       </div>

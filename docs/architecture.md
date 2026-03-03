@@ -79,8 +79,8 @@ Candidate        LiveKit         Agent          Deepgram       OpenAI (LLM)    O
 ## 4. Data Flow
 
 ### 4.1 Audio Path
-- **Candidate → Agent**: Candidate publishes mic track → LiveKit routes to Agent room participant → Agent subscribes and feeds 16kHz PCM to `SttAdapter.pushAudio()`
-- **Agent → Candidate**: TTS produces PCM chunks → Agent publishes via `LocalAudioTrack` → LiveKit routes to Candidate → Browser plays through `<audio>` element
+- **Candidate → Agent**: Candidate publishes mic track → LiveKit routes to Agent room participant → Agent subscribes using `AudioStream` (from `@livekit/rtc-node`) to iterate raw PCM frames → feeds to `SttAdapter.pushAudio()`
+- **Agent → Candidate**: TTS produces PCM chunks → Agent creates 20ms `AudioFrame` objects → publishes via `AudioSource.captureFrame()` through `LocalAudioTrack` → LiveKit routes to Candidate → Browser plays through `<audio>` element
 
 ### 4.2 Data Channel Path
 - Agent sends structured JSON messages via LiveKit data channel (reliable mode)

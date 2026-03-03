@@ -1,4 +1,4 @@
-import { Worker, type Job } from 'bullmq';
+import { Worker, Queue, type Job } from 'bullmq';
 import { PrismaClient } from '@prisma/client';
 import IORedis from 'ioredis';
 import OpenAI from 'openai';
@@ -94,8 +94,7 @@ async function processEvaluation(job: Job<{ sessionId: string }>): Promise<void>
   );
 
   // Enqueue report generation
-  const { Queue } = await import('bullmq');
-  const reportQueue = new Queue('report', { connection: redis });
+  const reportQueue = new Queue('report', { connection: redis as any });
   await reportQueue.add('generate', { sessionId, scoreCardId: scoreCard.id });
 }
 
@@ -137,7 +136,7 @@ async function processTurnPersist(
 
 export function startEvaluationWorker(): Worker {
   const worker = new Worker('evaluation', processEvaluation, {
-    connection: redis,
+    connection: redis as any,
     concurrency: 3,
   });
 
@@ -154,7 +153,7 @@ export function startEvaluationWorker(): Worker {
 
 export function startTurnPersistWorker(): Worker {
   const worker = new Worker('turn-persist', processTurnPersist, {
-    connection: redis,
+    connection: redis as any,
     concurrency: 10,
   });
 

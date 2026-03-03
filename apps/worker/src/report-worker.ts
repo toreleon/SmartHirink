@@ -1,7 +1,7 @@
 import { Worker, type Job } from 'bullmq';
 import { PrismaClient } from '@prisma/client';
 import IORedis from 'ioredis';
-import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import { PDFDocument, StandardFonts, rgb, type Color } from 'pdf-lib';
 import pino from 'pino';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -59,7 +59,7 @@ async function processReport(
 
   const drawText = (
     text: string,
-    options: { font?: typeof font; size?: number; color?: typeof rgb; x?: number } = {},
+    options: { font?: typeof font; size?: number; color?: Color; x?: number } = {},
   ) => {
     const f = options.font ?? font;
     const s = options.size ?? fontSize;
@@ -192,7 +192,7 @@ async function processReport(
 
 export function startReportWorker(): Worker {
   const worker = new Worker('report', processReport, {
-    connection: redis,
+    connection: redis as any,
     concurrency: 2,
   });
 
