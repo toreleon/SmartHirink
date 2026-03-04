@@ -5,15 +5,15 @@ import {
   encodeClientMessage,
   decodeClientMessage,
 } from '../data-channel.js';
-import { InterviewPhase, SpeakingParty } from '../types.js';
+import { InterviewPhase, SpeakerRole } from '../types.js';
 import type { AgentDataMessage, ClientDataMessage } from '../schemas.js';
 
 describe('encodeAgentMessage / decodeAgentMessage', () => {
   it('round-trips a state message', () => {
     const msg: AgentDataMessage = {
       type: 'state',
-      phase: InterviewPhase.QUESTIONING,
-      speaking: { who: SpeakingParty.AI },
+      phase: InterviewPhase.IN_PROGRESS,
+      speaking: { who: SpeakerRole.AI },
       vad: false,
       t: 1700000000000,
     };

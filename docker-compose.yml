@@ -1,0 +1,5 @@
+# SmartHirink Root Docker Compose
+# This file complements the configurations in infra/docker-compose.yml
+
+include:
+  - infra/docker-compose.yml

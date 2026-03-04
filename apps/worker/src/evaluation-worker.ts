@@ -1,5 +1,5 @@
 import { Worker, Queue, type Job } from 'bullmq';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, SpeakerRole } from '@prisma/client';
 import IORedis from 'ioredis';
 import OpenAI from 'openai';
 import pino from 'pino';
@@ -108,11 +108,22 @@ async function processEvaluation(job: Job<{ sessionId: string }>): Promise<void>
       sessionId,
       overallScore: evaluation.overallScore,
       maxPossibleScore: evaluation.maxPossibleScore,
-      criterionScores: evaluation.criterionScores,
-      strengths: evaluation.strengths,
-      weaknesses: evaluation.weaknesses,
+      normalizedScore: (evaluation.overallScore / evaluation.maxPossibleScore) * 100,
       recommendation: evaluation.recommendation,
+      evaluatedBy: 'gpt-4o-mini',
       evaluatedAt: new Date(),
+      criteria: {
+        create: evaluation.criterionScores.map((c, index) => ({
+          name: c.criterionName,
+          description: c.reasoning,
+          score: c.score,
+          maxScore: c.maxScore,
+          weight: 0.2,
+          evidence: c.evidence,
+          reasoning: c.reasoning,
+          order: index,
+        })),
+      },
     },
   });
 
@@ -143,7 +154,7 @@ async function processTurnPersist(
     create: {
       sessionId,
       index,
-      speakerRole: role,
+      speakerRole: role === 'AI' ? SpeakerRole.AI : SpeakerRole.CANDIDATE,
       transcript: text,
       sttLatencyMs: latency.sttMs,
       llmTtftMs: latency.llmTtftMs,

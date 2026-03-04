@@ -146,8 +146,16 @@ export async function rubricRoutes(app: FastifyInstance) {
     const rubric = await prisma.rubric.create({
       data: {
         scenarioId: body.scenarioId,
+        title: body.title,
+        description: body.description,
         criteria: {
-          create: body.criteria,
+          create: body.criteria.map((c) => ({
+            name: c.name,
+            description: c.description,
+            maxScore: c.maxScore,
+            weight: c.weight,
+            order: c.order ?? 0,
+          })),
         },
       },
       include: { criteria: true },

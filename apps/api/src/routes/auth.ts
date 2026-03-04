@@ -10,51 +10,32 @@ import prisma from '../lib/prisma.js';
 import { logAudit } from '../lib/audit.js';
 
 export async function authRoutes(app: FastifyInstance) {
-  // ─── Register (rate limited: 3/min) ────────────────────
+  // Helper to get user with fullName from profile
+  async function getUserWithProfile(userId: string) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        candidateProfile: true,
+        recruiterProfile: true,
+      },
+    });
+    if (!user) return null;
+    
+    const fullName = user.candidateProfile?.fullName ?? user.recruiterProfile?.fullName ?? user.email;
+    
+    return {
+      ...user,
+      fullName,
+    };
+  }
+
+  // ─── Register (disabled) ────────────────────────────────
+  // Self-registration is disabled. Accounts are created by ADMINs only.
   app.post(
     '/auth/register',
     { config: { rateLimit: { max: 3, timeWindow: '1 minute' } } },
-    async (req, reply) => {
-      const body = RegisterSchema.parse(req.body);
-      const exists = await prisma.user.findUnique({ where: { email: body.email } });
-      if (exists) {
-        return reply.status(409).send({ error: 'Email already registered' });
-      }
-
-      const passwordHash = await bcrypt.hash(body.password, 12);
-      const user = await prisma.user.create({
-        data: {
-          email: body.email,
-          passwordHash,
-          fullName: body.fullName,
-          role: body.role,
-        },
-      });
-
-      await logAudit('REGISTER', 'User', user.id, user.id);
-
-      const token = app.jwt.sign(
-        { sub: user.id, email: user.email, role: user.role },
-        { expiresIn: '7d' },
-      );
-
-      // Set refresh token cookie
-      const refreshToken = app.jwt.sign(
-        { sub: user.id, type: 'refresh' },
-        { expiresIn: '30d' },
-      );
-      reply.setCookie('refreshToken', refreshToken, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        path: '/api/auth/refresh',
-        maxAge: 30 * 24 * 60 * 60, // 30 days
-      });
-
-      return reply.status(201).send({
-        token,
-        user: { id: user.id, email: user.email, fullName: user.fullName, role: user.role },
-      });
+    async (_req, reply) => {
+      return reply.status(403).send({ error: 'Self-registration is disabled. Please contact your administrator.' });
     },
   );
 
@@ -64,7 +45,13 @@ export async function authRoutes(app: FastifyInstance) {
     { config: { rateLimit: { max: 5, timeWindow: '1 minute' } } },
     async (req, reply) => {
       const body = LoginSchema.parse(req.body);
-      const user = await prisma.user.findUnique({ where: { email: body.email } });
+      const user = await prisma.user.findUnique({ 
+        where: { email: body.email },
+        include: {
+          candidateProfile: true,
+          recruiterProfile: true,
+        },
+      });
       if (!user) {
         return reply.status(401).send({ error: 'Invalid credentials' });
       }
@@ -72,6 +59,11 @@ export async function authRoutes(app: FastifyInstance) {
       const valid = await bcrypt.compare(body.password, user.passwordHash);
       if (!valid) {
         return reply.status(401).send({ error: 'Invalid credentials' });
+      }
+
+      // Candidates access interviews via invite links, not via login
+      if (user.role === 'CANDIDATE') {
+        return reply.status(403).send({ error: 'Candidate login is disabled. Please use your interview invite link.' });
       }
 
       await logAudit('LOGIN', 'User', user.id, user.id);
@@ -94,9 +86,11 @@ export async function authRoutes(app: FastifyInstance) {
         maxAge: 30 * 24 * 60 * 60,
       });
 
+      const fullName = user.candidateProfile?.fullName ?? user.recruiterProfile?.fullName ?? user.email;
+
       return {
         token,
-        user: { id: user.id, email: user.email, fullName: user.fullName, role: user.role },
+        user: { id: user.id, email: user.email, fullName, role: user.role },
       };
     },
   );
@@ -114,10 +108,7 @@ export async function authRoutes(app: FastifyInstance) {
         return reply.status(401).send({ error: 'Invalid token type' });
       }
 
-      const user = await prisma.user.findUnique({
-        where: { id: payload.sub },
-        select: { id: true, email: true, fullName: true, role: true },
-      });
+      const user = await getUserWithProfile(payload.sub);
       if (!user) {
         return reply.status(401).send({ error: 'User not found' });
       }
@@ -127,7 +118,15 @@ export async function authRoutes(app: FastifyInstance) {
         { expiresIn: '7d' },
       );
 
-      return { token, user };
+      return { 
+        token, 
+        user: { 
+          id: user.id, 
+          email: user.email, 
+          fullName: user.fullName, 
+          role: user.role 
+        },
+      };
     } catch {
       return reply.status(401).send({ error: 'Invalid refresh token' });
     }
@@ -140,13 +139,19 @@ export async function authRoutes(app: FastifyInstance) {
   });
 
   // ─── Me ─────────────────────────────────────────────────
-  app.get('/auth/me', { onRequest: [app.authenticate] }, async (req) => {
+  app.get('/auth/me', { onRequest: [app.authenticate] }, async (req, reply) => {
     const payload = req.user as { sub: string };
-    const user = await prisma.user.findUniqueOrThrow({
-      where: { id: payload.sub },
-      select: { id: true, email: true, fullName: true, role: true, createdAt: true },
-    });
-    return user;
+    const user = await getUserWithProfile(payload.sub);
+    if (!user) {
+      return reply.status(404).send({ error: 'User not found' });
+    }
+    return {
+      id: user.id,
+      email: user.email,
+      fullName: user.fullName,
+      role: user.role,
+      createdAt: user.createdAt,
+    };
   });
 
   // ─── Change Password ──────────────────────────────────
@@ -172,17 +177,47 @@ export async function authRoutes(app: FastifyInstance) {
   });
 
   // ─── Update Profile ───────────────────────────────────
-  app.put('/auth/profile', { onRequest: [app.authenticate] }, async (req) => {
+  app.put('/auth/profile', { onRequest: [app.authenticate] }, async (req, reply) => {
     const payload = req.user as { sub: string };
     const body = ProfileUpdateSchema.parse(req.body);
 
-    const user = await prisma.user.update({
+    const user = await prisma.user.findUniqueOrThrow({ 
       where: { id: payload.sub },
-      data: body,
-      select: { id: true, email: true, fullName: true, role: true, createdAt: true },
+      include: {
+        candidateProfile: true,
+        recruiterProfile: true,
+      },
     });
 
+    // Update user fields
+    const updateData: Record<string, unknown> = {};
+    if (body.email) updateData.email = body.email;
+
+    // Update profile fullName if provided
+    if (body.fullName) {
+      if (user.candidateProfile) {
+        await prisma.candidateProfile.update({
+          where: { userId: payload.sub },
+          data: { fullName: body.fullName },
+        });
+      } else if (user.recruiterProfile) {
+        await prisma.recruiterProfile.update({
+          where: { userId: payload.sub },
+          data: { fullName: body.fullName },
+        });
+      }
+    }
+
+    if (Object.keys(updateData).length > 0) {
+      await prisma.user.update({
+        where: { id: payload.sub },
+        data: updateData,
+      });
+    }
+
+    const updatedUser = await getUserWithProfile(payload.sub);
+
     await logAudit('UPDATE_PROFILE', 'User', payload.sub, payload.sub);
-    return user;
+    return updatedUser;
   });
 }

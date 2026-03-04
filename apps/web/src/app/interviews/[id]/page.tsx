@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
-import { ArrowLeft, Mic, CheckCircle, AlertTriangle, Bot, User } from 'lucide-react';
+import { ArrowLeft, Mic, CheckCircle, AlertTriangle, Bot, User, Mail, Copy, Check } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/lib/store';
 import { toast } from '@/lib/toast';
@@ -32,6 +32,9 @@ export default function InterviewDetailPage() {
   const [token, setToken] = useState<string | null>(null);
   const [roomName, setRoomName] = useState<string | null>(null);
   const [joining, setJoining] = useState(false);
+  const [sendingInvite, setSendingInvite] = useState(false);
+  const [inviteUrl, setInviteUrl] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const id = params.id as string;
 
@@ -70,6 +73,30 @@ export default function InterviewDetailPage() {
     } catch (err: any) {
       toast('error', err.message);
     }
+  };
+
+  const handleSendInvite = async () => {
+    setSendingInvite(true);
+    try {
+      const result = await api.sendInvite(id);
+      setInviteUrl(result.inviteUrl);
+      // Refresh interview to get inviteSentAt
+      const updated = await api.getInterview(id);
+      setInterview(updated);
+      toast('success', 'Interview invite email sent to candidate');
+    } catch (err: any) {
+      toast('error', err.message);
+    } finally {
+      setSendingInvite(false);
+    }
+  };
+
+  const handleCopyInviteUrl = async () => {
+    if (!inviteUrl) return;
+    await navigator.clipboard.writeText(inviteUrl);
+    setCopied(true);
+    toast('success', 'Invite URL copied to clipboard');
+    setTimeout(() => setCopied(false), 2000);
   };
 
   if (loading) {
@@ -199,8 +226,45 @@ export default function InterviewDetailPage() {
         </CardContent>
       </Card>
 
+      {/* Invite Status */}
+      {interview.inviteSentAt && (
+        <div className="mb-6 flex items-center gap-2 text-sm text-muted-foreground">
+          <Mail className="h-4 w-4" />
+          Invite sent {new Date(interview.inviteSentAt).toLocaleString()}
+        </div>
+      )}
+
+      {/* Invite URL (shown after sending) */}
+      {inviteUrl && (
+        <Card className="mb-6">
+          <CardContent className="pt-4">
+            <div className="flex items-center gap-2">
+              <code className="flex-1 rounded bg-muted px-3 py-2 text-xs font-mono break-all">
+                {inviteUrl}
+              </code>
+              <Button variant="outline" size="sm" onClick={handleCopyInviteUrl}>
+                {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Actions */}
-      <div className="flex gap-3">
+      <div className="flex flex-wrap gap-3">
+        {/* Send Invite - for RECRUITER/ADMIN when session is not terminal */}
+        {(user?.role === 'RECRUITER' || user?.role === 'ADMIN') &&
+          !['COMPLETED', 'CANCELLED', 'NO_SHOW', 'IN_PROGRESS'].includes(interview.phase) && (
+            <Button variant="outline" onClick={handleSendInvite} disabled={sendingInvite}>
+              <Mail className="mr-2 h-4 w-4" />
+              {sendingInvite
+                ? 'Sending...'
+                : interview.inviteSentAt
+                  ? 'Resend Invite Email'
+                  : 'Send Invite Email'}
+            </Button>
+          )}
+
         {interview.phase === 'CREATED' && user?.role === 'RECRUITER' && (
           <Button variant="success" onClick={handleStart}>
             Start Interview Session

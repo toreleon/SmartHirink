@@ -12,6 +12,8 @@ const envSchema = z.object({
   HOST: z.string().default('0.0.0.0'),
   LOG_LEVEL: z.string().default('info'),
   APP_URL: z.string().default('http://localhost:3000'),
+  RESEND_API_KEY: z.string().optional(),
+  RESEND_FROM_EMAIL: z.string().default('SmartHirink <noreply@smarthirink.com>'),
 });
 
 export type Env = z.infer<typeof envSchema>;

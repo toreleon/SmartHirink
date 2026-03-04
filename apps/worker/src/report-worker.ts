@@ -43,13 +43,27 @@ async function processReport(
 
   const scoreCard = session.scoreCard;
 
-  // Validate criterionScores JSONB with Zod before use
+  // Fetch criteria from the separate table
+  const criteria = await prisma.scoreCardCriterion.findMany({
+    where: { scoreCardId: scoreCard.id },
+    orderBy: { order: 'asc' },
+  });
+
+  // Validate criteria with Zod before use
   let criterionScores: z.infer<typeof CriterionScoresArraySchema>;
   try {
-    criterionScores = CriterionScoresArraySchema.parse(scoreCard.criterionScores);
+    criterionScores = CriterionScoresArraySchema.parse(
+      criteria.map((c) => ({
+        criterionName: c.name,
+        score: c.score,
+        maxScore: c.maxScore,
+        evidence: c.evidence,
+        reasoning: c.reasoning,
+      })),
+    );
   } catch (err) {
-    logger.error({ err, sessionId }, 'Invalid criterionScores data in scoreCard');
-    throw new Error('Invalid criterionScores data');
+    logger.error({ err, sessionId }, 'Invalid criteria data in scoreCard');
+    throw new Error('Invalid criteria data');
   }
 
   // ─── Build PDF ──────────────────────────────────────────
@@ -149,18 +163,26 @@ async function processReport(
   }
   drawSeparator();
 
-  // ─── Strengths & Weaknesses ────────────────────────────
-  drawText('Strengths', { font: fontBold, size: headerSize });
-  for (const s of scoreCard.strengths) {
-    drawText(`• ${s}`);
-  }
-  drawSeparator();
+  // ─── Strengths & Weaknesses (from criteria) ────────────
+  // Extract strengths (high scores) and weaknesses (low scores) from criteria
+  const strengths = criteria.filter((c) => c.score >= c.maxScore * 0.8);
+  const weaknesses = criteria.filter((c) => c.score < c.maxScore * 0.6);
 
-  drawText('Areas for Improvement', { font: fontBold, size: headerSize });
-  for (const w of scoreCard.weaknesses) {
-    drawText(`• ${w}`);
+  if (strengths.length > 0) {
+    drawText('Strengths', { font: fontBold, size: headerSize });
+    for (const s of strengths) {
+      drawText(`• ${s.name}: ${s.score}/${s.maxScore} - ${s.evidence.substring(0, 100)}...`);
+    }
+    drawSeparator();
   }
-  drawSeparator();
+
+  if (weaknesses.length > 0) {
+    drawText('Areas for Improvement', { font: fontBold, size: headerSize });
+    for (const w of weaknesses) {
+      drawText(`• ${w.name}: ${w.score}/${w.maxScore} - ${w.reasoning.substring(0, 100)}...`);
+    }
+    drawSeparator();
+  }
 
   // ─── Transcript ─────────────────────────────────────────
   drawText('Interview Transcript', { font: fontBold, size: headerSize });

@@ -1,8 +1,8 @@
 /**
- * SmartHirink – Database Seed Script
+ * SmartHirink – Database Seed Script (Updated for Entity Redesign)
  *
  * Creates realistic template data for demonstration and development:
- *   - 1 Admin, 2 Recruiters, 5 Candidates (with profiles)
+ *   - 1 Admin, 2 Recruiters (with profiles), 5 Candidates (with profiles)
  *   - 6 Interview Scenarios across different domains/levels
  *   - Rubrics with detailed evaluation criteria for each scenario
  *   - 8 Interview Sessions in various phases (with sample turns, scorecards, reports)
@@ -15,7 +15,7 @@
  * All passwords: "password123"
  */
 
-import { PrismaClient, UserRole, InterviewPhase } from '@prisma/client';
+import { PrismaClient, UserRole, InterviewPhase, InterviewLevel, SpeakerRole, Recommendation } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
@@ -42,6 +42,10 @@ const ids = {
   candidateEvan: uuid(),
   candidateFiona: uuid(),
   candidateGeorge: uuid(),
+
+  // Recruiter profiles
+  recruiterProfileAlice: uuid(),
+  recruiterProfileBob: uuid(),
 
   // Candidate profiles
   profileCharlie: uuid(),
@@ -96,65 +100,101 @@ const users = [
     id: ids.admin,
     email: 'admin@smarthirink.com',
     passwordHash: PASSWORD_HASH,
-    fullName: 'System Admin',
     role: UserRole.ADMIN,
-    createdAt: ago(60),
+    isActive: true,
   },
   {
     id: ids.recruiterAlice,
     email: 'alice.nguyen@smarthirink.com',
     passwordHash: PASSWORD_HASH,
-    fullName: 'Alice Nguyen',
     role: UserRole.RECRUITER,
-    createdAt: ago(45),
+    isActive: true,
+    lastLoginAt: ago(0),
   },
   {
     id: ids.recruiterBob,
     email: 'bob.tran@smarthirink.com',
     passwordHash: PASSWORD_HASH,
-    fullName: 'Bob Tran',
     role: UserRole.RECRUITER,
-    createdAt: ago(40),
+    isActive: true,
+    lastLoginAt: ago(1),
   },
   {
     id: ids.candidateCharlie,
     email: 'charlie.le@example.com',
     passwordHash: PASSWORD_HASH,
-    fullName: 'Charlie Le',
     role: UserRole.CANDIDATE,
-    createdAt: ago(30),
+    isActive: true,
   },
   {
     id: ids.candidateDiana,
     email: 'diana.pham@example.com',
     passwordHash: PASSWORD_HASH,
-    fullName: 'Diana Pham',
     role: UserRole.CANDIDATE,
-    createdAt: ago(28),
+    isActive: true,
   },
   {
     id: ids.candidateEvan,
     email: 'evan.vo@example.com',
     passwordHash: PASSWORD_HASH,
-    fullName: 'Evan Vo',
     role: UserRole.CANDIDATE,
-    createdAt: ago(25),
+    isActive: true,
   },
   {
     id: ids.candidateFiona,
     email: 'fiona.hoang@example.com',
     passwordHash: PASSWORD_HASH,
-    fullName: 'Fiona Hoang',
     role: UserRole.CANDIDATE,
-    createdAt: ago(20),
+    isActive: true,
   },
   {
     id: ids.candidateGeorge,
     email: 'george.do@example.com',
     passwordHash: PASSWORD_HASH,
-    fullName: 'George Do',
     role: UserRole.CANDIDATE,
-    createdAt: ago(18),
+    isActive: true,
+  },
+];
+
+// ═══════════════════════════════════════════════════════════
+// RECRUITER PROFILES
+// ═══════════════════════════════════════════════════════════
+const recruiterProfiles = [
+  {
+    id: ids.recruiterProfileAlice,
+    userId: ids.recruiterAlice,
+    fullName: 'Alice Nguyen',
+    email: 'alice.nguyen@smarthirink.com',
+    title: 'Senior Technical Recruiter',
+    department: 'Engineering Hiring',
+    phone: '+1-555-0101',
+    companyInfo: {
+      name: 'SmartHirink Inc.',
+      logo: '/logo.png',
+      website: 'https://smarthirink.com',
+    },
+    preferences: {
+      timezone: 'America/New_York',
+      notifications: { email: true, sms: false },
+    },
+  },
+  {
+    id: ids.recruiterProfileBob,
+    userId: ids.recruiterBob,
+    fullName: 'Bob Tran',
+    email: 'bob.tran@smarthirink.com',
+    title: 'Technical Recruiter',
+    department: 'Engineering Hiring',
+    phone: '+1-555-0102',
+    companyInfo: {
+      name: 'SmartHirink Inc.',
+      logo: '/logo.png',
+      website: 'https://smarthirink.com',
+    },
+    preferences: {
+      timezone: 'America/Los_Angeles',
+      notifications: { email: true, sms: true },
+    },
   },
 ];
 
@@ -167,55 +207,75 @@ const candidateProfiles = [
     userId: ids.candidateCharlie,
     fullName: 'Charlie Le',
     email: 'charlie.le@example.com',
-    phone: '+84 901 234 567',
-    skills: ['Node.js', 'TypeScript', 'PostgreSQL', 'Docker', 'AWS'],
+    phone: '+1-555-0201',
+    resumeUrl: 'https://example.com/resumes/charlie.pdf',
+    resumeText: 'Backend engineer with 4 years of experience in Node.js, TypeScript, and PostgreSQL...',
+    skills: ['Node.js', 'TypeScript', 'PostgreSQL', 'Redis', 'NestJS', 'Microservices'],
     experienceYears: 4,
-    resumeText:
-      'Backend engineer with 4 years of experience building scalable REST and GraphQL APIs. Proficient in Node.js, TypeScript, and cloud infrastructure. Led migration from monolith to microservices at previous company.',
+    headline: 'Senior Backend Engineer',
+    location: 'San Francisco, CA',
+    linkedinUrl: 'https://linkedin.com/in/charliele',
+    githubUrl: 'https://github.com/charliele',
   },
   {
     id: ids.profileDiana,
     userId: ids.candidateDiana,
     fullName: 'Diana Pham',
     email: 'diana.pham@example.com',
-    phone: '+84 902 345 678',
-    skills: ['React', 'Next.js', 'TypeScript', 'Tailwind CSS', 'Figma'],
+    phone: '+1-555-0202',
+    resumeUrl: 'https://example.com/resumes/diana.pdf',
+    resumeText: 'Frontend developer with 3 years of experience in React, TypeScript, and design systems...',
+    skills: ['React', 'TypeScript', 'Next.js', 'Tailwind CSS', 'Storybook', 'Accessibility'],
     experienceYears: 3,
-    resumeText:
-      'Frontend developer passionate about building performant user interfaces. 3 years of experience with React ecosystem. Contributed to open-source component libraries and built design systems from scratch.',
+    headline: 'Frontend Developer',
+    location: 'New York, NY',
+    linkedinUrl: 'https://linkedin.com/in/dianapham',
+    githubUrl: 'https://github.com/dianapham',
   },
   {
     id: ids.profileEvan,
     userId: ids.candidateEvan,
     fullName: 'Evan Vo',
     email: 'evan.vo@example.com',
-    phone: '+84 903 456 789',
-    skills: ['React', 'Node.js', 'Python', 'MongoDB', 'GraphQL', 'Kubernetes'],
+    phone: '+1-555-0203',
+    resumeUrl: 'https://example.com/resumes/evan.pdf',
+    resumeText: 'Full-stack engineer with 6 years of experience building scalable web applications...',
+    skills: ['TypeScript', 'React', 'Node.js', 'AWS', 'System Design', 'Leadership'],
     experienceYears: 6,
-    resumeText:
-      'Full-stack engineer with 6 years of experience across multiple stacks. Built and deployed applications serving millions of users. Strong background in system design and distributed systems.',
+    headline: 'Senior Full-Stack Engineer',
+    location: 'Austin, TX',
+    linkedinUrl: 'https://linkedin.com/in/evanvo',
+    githubUrl: 'https://github.com/evanvo',
   },
   {
     id: ids.profileFiona,
     userId: ids.candidateFiona,
     fullName: 'Fiona Hoang',
     email: 'fiona.hoang@example.com',
-    phone: '+84 904 567 890',
-    skills: ['Terraform', 'AWS', 'Kubernetes', 'Docker', 'CI/CD', 'Python'],
+    phone: '+1-555-0204',
+    resumeUrl: 'https://example.com/resumes/fiona.pdf',
+    resumeText: 'DevOps engineer with 5 years of experience in cloud infrastructure and CI/CD...',
+    skills: ['AWS', 'Kubernetes', 'Terraform', 'Docker', 'CI/CD', 'Monitoring'],
     experienceYears: 5,
-    resumeText:
-      'DevOps/SRE engineer with 5 years of experience managing cloud infrastructure at scale. Expertise in IaC, container orchestration, and observability. Reduced cloud costs by 40% at previous role.',
+    headline: 'DevOps Engineer',
+    location: 'Seattle, WA',
+    linkedinUrl: 'https://linkedin.com/in/fionahoang',
+    githubUrl: 'https://github.com/fionahoang',
   },
   {
     id: ids.profileGeorge,
     userId: ids.candidateGeorge,
     fullName: 'George Do',
     email: 'george.do@example.com',
-    phone: '+84 905 678 901',
-    skills: ['Python', 'Apache Spark', 'SQL', 'Airflow', 'dbt', 'AWS Redshift'],
-    experienceYears: 3,
-    resumeText:
-      'Data engineer with 3 years of experience building ETL pipelines and data warehouses. Proficient in Python, SQL, and modern data stack. Built real-time analytics pipeline processing 10M+ events/day.',
+    phone: '+1-555-0205',
+    resumeUrl: 'https://example.com/resumes/george.pdf',
+    resumeText: 'Data engineer with 4 years of experience building data pipelines and analytics platforms...',
+    skills: ['Python', 'Spark', 'Airflow', 'Snowflake', 'SQL', 'Data Modeling'],
+    experienceYears: 4,
+    headline: 'Data Engineer',
+    location: 'Boston, MA',
+    linkedinUrl: 'https://linkedin.com/in/georgedo',
+    githubUrl: 'https://github.com/georgedo',
   },
 ];
 
@@ -225,180 +285,176 @@ const candidateProfiles = [
 const scenarios = [
   {
     id: ids.scenarioBackend,
+    version: 1,
     title: 'Backend Engineer Interview',
-    description:
-      'Assess the candidate on server-side development skills including API design, database optimization, caching strategies, and microservices architecture. Focus on practical experience with Node.js/TypeScript ecosystem.',
+    description: 'Assess the candidate on server-side development skills including API design, database optimization, caching strategies, and microservices architecture.',
     position: 'Backend Engineer',
-    level: 'MID',
+    level: InterviewLevel.MID,
     domain: 'Software Engineering',
-    topics: ['Node.js', 'TypeScript', 'REST API Design', 'PostgreSQL', 'Caching', 'Testing'],
+    topics: ['API Design', 'Database Optimization', 'Caching', 'Microservices'],
     questionCount: 10,
     durationMinutes: 30,
+    isPublished: true,
+    isTemplate: false,
     createdById: ids.recruiterAlice,
-    createdAt: ago(30),
   },
   {
     id: ids.scenarioFrontend,
+    version: 1,
     title: 'Frontend Developer Interview',
-    description:
-      'Evaluate frontend development expertise including modern React patterns, state management, performance optimization, accessibility, and responsive design. Emphasis on component architecture and testing.',
+    description: 'Evaluate frontend skills including React/TypeScript proficiency, performance optimization, accessibility, and modern CSS practices.',
     position: 'Frontend Developer',
-    level: 'MID',
+    level: InterviewLevel.MID,
     domain: 'Software Engineering',
-    topics: ['React', 'TypeScript', 'CSS/Tailwind', 'State Management', 'Performance', 'Accessibility'],
-    questionCount: 10,
+    topics: ['React', 'TypeScript', 'Performance', 'Accessibility', 'CSS'],
+    questionCount: 8,
     durationMinutes: 30,
+    isPublished: true,
+    isTemplate: false,
     createdById: ids.recruiterAlice,
-    createdAt: ago(28),
   },
   {
     id: ids.scenarioFullstack,
+    version: 1,
     title: 'Senior Full-Stack Engineer Interview',
-    description:
-      'Comprehensive assessment for senior full-stack engineers covering system design, architecture decisions, frontend/backend integration, DevOps practices, and technical leadership. Expect depth in at least one area.',
+    description: 'Comprehensive full-stack interview covering system design, database architecture, API design, and frontend-backend integration.',
     position: 'Senior Full-Stack Engineer',
-    level: 'SENIOR',
+    level: InterviewLevel.SENIOR,
     domain: 'Software Engineering',
-    topics: ['System Design', 'React', 'Node.js', 'Databases', 'Architecture', 'Leadership'],
+    topics: ['System Design', 'API Design', 'Database Architecture', 'React', 'Node.js'],
     questionCount: 12,
     durationMinutes: 45,
+    isPublished: true,
+    isTemplate: false,
     createdById: ids.recruiterAlice,
-    createdAt: ago(25),
   },
   {
     id: ids.scenarioDevops,
+    version: 1,
     title: 'DevOps / SRE Engineer Interview',
-    description:
-      'Assess infrastructure and operations expertise including CI/CD pipeline design, container orchestration, infrastructure as code, monitoring/alerting, and incident response practices.',
+    description: 'Assess DevOps and SRE skills including cloud infrastructure, containerization, CI/CD pipelines, monitoring, and incident response.',
     position: 'DevOps Engineer',
-    level: 'MID',
-    domain: 'Infrastructure',
-    topics: ['Docker', 'Kubernetes', 'CI/CD', 'Terraform', 'Monitoring', 'Cloud (AWS/GCP)'],
+    level: InterviewLevel.MID,
+    domain: 'DevOps',
+    topics: ['AWS', 'Kubernetes', 'CI/CD', 'Monitoring', 'Incident Response'],
     questionCount: 10,
-    durationMinutes: 30,
+    durationMinutes: 35,
+    isPublished: true,
+    isTemplate: false,
     createdById: ids.recruiterBob,
-    createdAt: ago(22),
   },
   {
     id: ids.scenarioDataEng,
+    version: 1,
     title: 'Data Engineer Interview',
-    description:
-      'Evaluate data engineering skills including ETL/ELT pipeline design, data modeling, warehouse architecture, real-time vs batch processing, and data quality assurance.',
+    description: 'Evaluate data engineering skills including ETL pipelines, data modeling, big data technologies, and SQL optimization.',
     position: 'Data Engineer',
-    level: 'JUNIOR',
+    level: InterviewLevel.MID,
     domain: 'Data Engineering',
-    topics: ['SQL', 'Python', 'ETL Pipelines', 'Data Modeling', 'Apache Spark', 'dbt'],
-    questionCount: 8,
-    durationMinutes: 25,
+    topics: ['ETL', 'Data Modeling', 'Spark', 'SQL', 'Data Warehousing'],
+    questionCount: 10,
+    durationMinutes: 35,
+    isPublished: true,
+    isTemplate: false,
     createdById: ids.recruiterBob,
-    createdAt: ago(18),
   },
   {
     id: ids.scenarioSystemDesign,
+    version: 1,
     title: 'System Design Interview — Staff Level',
-    description:
-      'Deep-dive system design interview for staff-level candidates. Expect questions on designing large-scale distributed systems, handling trade-offs, capacity estimation, and real-world production considerations.',
-    position: 'Staff Software Engineer',
-    level: 'LEAD',
+    description: 'Deep-dive system design interview for staff-level candidates. Expect questions on designing large-scale distributed systems, handling trade-offs, capacity estimation, and real-world production considerations.',
+    position: 'Staff Engineer',
+    level: InterviewLevel.STAFF,
     domain: 'Software Engineering',
-    topics: ['Distributed Systems', 'Scalability', 'CAP Theorem', 'Load Balancing', 'Caching', 'Message Queues'],
-    questionCount: 6,
+    topics: ['System Design', 'Distributed Systems', 'Scalability', 'Trade-offs'],
+    questionCount: 5,
     durationMinutes: 60,
+    isPublished: true,
+    isTemplate: true,
     createdById: ids.recruiterAlice,
-    createdAt: ago(15),
   },
 ];
 
 // ═══════════════════════════════════════════════════════════
-// RUBRICS & CRITERIA
+// RUBRICS
 // ═══════════════════════════════════════════════════════════
-interface CriterionInput {
-  id: string;
-  rubricId: string;
-  name: string;
-  description: string;
-  maxScore: number;
-  weight: number;
-}
-
-interface RubricInput {
-  id: string;
-  scenarioId: string;
-  createdAt: Date;
-  criteria: CriterionInput[];
-}
-
-const rubrics: RubricInput[] = [
+const rubrics = [
   {
     id: ids.rubricBackend,
+    version: 1,
     scenarioId: ids.scenarioBackend,
-    createdAt: ago(30),
+    title: 'Backend Engineer Evaluation Rubric',
+    description: 'Evaluation criteria for backend engineering interviews',
     criteria: [
-      { id: uuid(), rubricId: ids.rubricBackend, name: 'API Design', description: 'Ability to design clean, RESTful APIs with proper status codes, pagination, and versioning', maxScore: 10, weight: 0.25 },
-      { id: uuid(), rubricId: ids.rubricBackend, name: 'Database Knowledge', description: 'Understanding of relational databases, indexing, query optimization, and data modeling', maxScore: 10, weight: 0.25 },
-      { id: uuid(), rubricId: ids.rubricBackend, name: 'Error Handling & Testing', description: 'Approach to error handling, input validation, and testing strategies (unit, integration)', maxScore: 10, weight: 0.2 },
-      { id: uuid(), rubricId: ids.rubricBackend, name: 'System Design Awareness', description: 'Understanding of caching, message queues, and scalability patterns for backend systems', maxScore: 10, weight: 0.2 },
-      { id: uuid(), rubricId: ids.rubricBackend, name: 'Communication', description: 'Clarity of explanation, structured thinking, and ability to articulate technical decisions', maxScore: 10, weight: 0.1 },
+      { name: 'Technical Depth', description: 'Demonstrates deep understanding of backend concepts', maxScore: 10, weight: 0.3, order: 0 },
+      { name: 'Problem Solving', description: 'Approaches problems systematically', maxScore: 10, weight: 0.25, order: 1 },
+      { name: 'Communication', description: 'Explains technical concepts clearly', maxScore: 10, weight: 0.25, order: 2 },
+      { name: 'Best Practices', description: 'Follows industry best practices', maxScore: 10, weight: 0.2, order: 3 },
     ],
   },
   {
     id: ids.rubricFrontend,
+    version: 1,
     scenarioId: ids.scenarioFrontend,
-    createdAt: ago(28),
+    title: 'Frontend Developer Evaluation Rubric',
+    description: 'Evaluation criteria for frontend engineering interviews',
     criteria: [
-      { id: uuid(), rubricId: ids.rubricFrontend, name: 'React Proficiency', description: 'Understanding of React hooks, component lifecycle, rendering optimization, and patterns', maxScore: 10, weight: 0.25 },
-      { id: uuid(), rubricId: ids.rubricFrontend, name: 'State Management', description: 'Ability to choose and implement appropriate state management solutions', maxScore: 10, weight: 0.2 },
-      { id: uuid(), rubricId: ids.rubricFrontend, name: 'CSS & Layout', description: 'Proficiency in CSS, responsive design, and modern layout techniques (Flexbox, Grid)', maxScore: 10, weight: 0.2 },
-      { id: uuid(), rubricId: ids.rubricFrontend, name: 'Performance & Accessibility', description: 'Knowledge of web performance optimization, Core Web Vitals, and WCAG accessibility standards', maxScore: 10, weight: 0.2 },
-      { id: uuid(), rubricId: ids.rubricFrontend, name: 'Testing & Tooling', description: 'Experience with frontend testing (Jest, Testing Library, Cypress) and build tools', maxScore: 10, weight: 0.15 },
+      { name: 'React Proficiency', description: 'Strong understanding of React patterns', maxScore: 10, weight: 0.3, order: 0 },
+      { name: 'CSS & Design', description: 'Creates visually appealing and responsive UIs', maxScore: 10, weight: 0.25, order: 1 },
+      { name: 'Accessibility', description: 'Implements accessible components', maxScore: 10, weight: 0.25, order: 2 },
+      { name: 'Performance', description: 'Optimizes for performance', maxScore: 10, weight: 0.2, order: 3 },
     ],
   },
   {
     id: ids.rubricFullstack,
+    version: 1,
     scenarioId: ids.scenarioFullstack,
-    createdAt: ago(25),
+    title: 'Full-Stack Engineer Evaluation Rubric',
+    description: 'Evaluation criteria for full-stack engineering interviews',
     criteria: [
-      { id: uuid(), rubricId: ids.rubricFullstack, name: 'Architecture & Design', description: 'Ability to make sound architectural decisions and explain trade-offs across the stack', maxScore: 10, weight: 0.25 },
-      { id: uuid(), rubricId: ids.rubricFullstack, name: 'Frontend Depth', description: 'Deep knowledge of frontend frameworks, rendering strategies, and UX best practices', maxScore: 10, weight: 0.2 },
-      { id: uuid(), rubricId: ids.rubricFullstack, name: 'Backend Depth', description: 'Strong server-side skills including API design, databases, and infrastructure concerns', maxScore: 10, weight: 0.2 },
-      { id: uuid(), rubricId: ids.rubricFullstack, name: 'Technical Leadership', description: 'Experience mentoring, leading technical projects, and making cross-team decisions', maxScore: 10, weight: 0.2 },
-      { id: uuid(), rubricId: ids.rubricFullstack, name: 'Problem Solving', description: 'Structured approach to breaking down complex problems and identifying solutions', maxScore: 10, weight: 0.15 },
+      { name: 'System Design', description: 'Designs scalable and maintainable systems', maxScore: 10, weight: 0.3, order: 0 },
+      { name: 'Technical Breadth', description: 'Demonstrates knowledge across the stack', maxScore: 10, weight: 0.25, order: 1 },
+      { name: 'Problem Solving', description: 'Approaches problems systematically', maxScore: 10, weight: 0.25, order: 2 },
+      { name: 'Communication', description: 'Explains technical concepts clearly', maxScore: 10, weight: 0.2, order: 3 },
     ],
   },
   {
     id: ids.rubricDevops,
+    version: 1,
     scenarioId: ids.scenarioDevops,
-    createdAt: ago(22),
+    title: 'DevOps Engineer Evaluation Rubric',
+    description: 'Evaluation criteria for DevOps engineering interviews',
     criteria: [
-      { id: uuid(), rubricId: ids.rubricDevops, name: 'CI/CD & Automation', description: 'Experience designing and maintaining CI/CD pipelines with automated testing and deployment', maxScore: 10, weight: 0.25 },
-      { id: uuid(), rubricId: ids.rubricDevops, name: 'Container Orchestration', description: 'Proficiency with Docker and Kubernetes including deployment strategies and troubleshooting', maxScore: 10, weight: 0.25 },
-      { id: uuid(), rubricId: ids.rubricDevops, name: 'Infrastructure as Code', description: 'Experience with Terraform, CloudFormation, or Pulumi for managing cloud infrastructure', maxScore: 10, weight: 0.2 },
-      { id: uuid(), rubricId: ids.rubricDevops, name: 'Monitoring & Incident Response', description: 'Knowledge of observability tools, alerting strategies, and incident management processes', maxScore: 10, weight: 0.2 },
-      { id: uuid(), rubricId: ids.rubricDevops, name: 'Security Practices', description: 'Understanding of security best practices, secrets management, and network policies', maxScore: 10, weight: 0.1 },
+      { name: 'Cloud Infrastructure', description: 'Strong AWS/cloud knowledge', maxScore: 10, weight: 0.3, order: 0 },
+      { name: 'Automation', description: 'Automates repetitive tasks effectively', maxScore: 10, weight: 0.25, order: 1 },
+      { name: 'Troubleshooting', description: 'Diagnoses and resolves issues efficiently', maxScore: 10, weight: 0.25, order: 2 },
+      { name: 'Security', description: 'Implements security best practices', maxScore: 10, weight: 0.2, order: 3 },
     ],
   },
   {
     id: ids.rubricDataEng,
+    version: 1,
     scenarioId: ids.scenarioDataEng,
-    createdAt: ago(18),
+    title: 'Data Engineer Evaluation Rubric',
+    description: 'Evaluation criteria for data engineering interviews',
     criteria: [
-      { id: uuid(), rubricId: ids.rubricDataEng, name: 'SQL Proficiency', description: 'Ability to write complex SQL queries including window functions, CTEs, and optimization', maxScore: 10, weight: 0.25 },
-      { id: uuid(), rubricId: ids.rubricDataEng, name: 'Pipeline Design', description: 'Understanding of ETL/ELT patterns, data orchestration, and pipeline monitoring', maxScore: 10, weight: 0.25 },
-      { id: uuid(), rubricId: ids.rubricDataEng, name: 'Data Modeling', description: 'Knowledge of dimensional modeling, star/snowflake schemas, and normalization trade-offs', maxScore: 10, weight: 0.2 },
-      { id: uuid(), rubricId: ids.rubricDataEng, name: 'Data Quality', description: 'Approach to data validation, testing, and ensuring data reliability', maxScore: 10, weight: 0.15 },
-      { id: uuid(), rubricId: ids.rubricDataEng, name: 'Tools & Ecosystem', description: 'Familiarity with modern data stack tools (Spark, Airflow, dbt, data warehouses)', maxScore: 10, weight: 0.15 },
+      { name: 'Data Modeling', description: 'Designs efficient data models', maxScore: 10, weight: 0.3, order: 0 },
+      { name: 'ETL Design', description: 'Builds robust ETL pipelines', maxScore: 10, weight: 0.25, order: 1 },
+      { name: 'SQL Proficiency', description: 'Writes optimized SQL queries', maxScore: 10, weight: 0.25, order: 2 },
+      { name: 'Big Data Tools', description: 'Experience with Spark, Airflow, etc.', maxScore: 10, weight: 0.2, order: 3 },
     ],
   },
   {
     id: ids.rubricSystemDesign,
+    version: 1,
     scenarioId: ids.scenarioSystemDesign,
-    createdAt: ago(15),
+    title: 'System Design Evaluation Rubric',
+    description: 'Evaluation criteria for staff-level system design interviews',
     criteria: [
-      { id: uuid(), rubricId: ids.rubricSystemDesign, name: 'Requirements Clarification', description: 'Ability to ask clarifying questions, define scope, and identify functional/non-functional requirements', maxScore: 10, weight: 0.15 },
-      { id: uuid(), rubricId: ids.rubricSystemDesign, name: 'High-Level Design', description: 'Ability to produce a clear, well-structured system architecture with appropriate components', maxScore: 10, weight: 0.25 },
-      { id: uuid(), rubricId: ids.rubricSystemDesign, name: 'Deep Dive', description: 'Depth of knowledge when drilling into specific components like databases, caching, or messaging', maxScore: 10, weight: 0.25 },
-      { id: uuid(), rubricId: ids.rubricSystemDesign, name: 'Scalability & Trade-offs', description: 'Understanding of horizontal scaling, consistency trade-offs, and capacity estimation', maxScore: 10, weight: 0.25 },
-      { id: uuid(), rubricId: ids.rubricSystemDesign, name: 'Communication', description: 'Ability to clearly present and justify design decisions throughout the discussion', maxScore: 10, weight: 0.1 },
+      { name: 'Architecture Design', description: 'Creates scalable and resilient architectures', maxScore: 10, weight: 0.35, order: 0 },
+      { name: 'Trade-off Analysis', description: 'Clearly articulates trade-offs', maxScore: 10, weight: 0.25, order: 1 },
+      { name: 'Capacity Planning', description: 'Estimates and plans for scale', maxScore: 10, weight: 0.2, order: 2 },
+      { name: 'Production Experience', description: 'Applies real-world production knowledge', maxScore: 10, weight: 0.2, order: 3 },
     ],
   },
 ];
@@ -407,215 +463,206 @@ const rubrics: RubricInput[] = [
 // INTERVIEW SESSIONS
 // ═══════════════════════════════════════════════════════════
 const sessions = [
-  // Session 1: COMPLETED — Charlie × Backend (scored)
   {
     id: ids.session1,
     scenarioId: ids.scenarioBackend,
     rubricId: ids.rubricBackend,
     candidateId: ids.profileCharlie,
     recruiterId: ids.recruiterAlice,
-    livekitRoom: `room_${ids.session1.slice(0, 8)}`,
+    livekitRoom: 'interview_backend_charlie',
     phase: InterviewPhase.COMPLETED,
+    phaseHistory: [
+      { phase: InterviewPhase.CREATED, timestamp: ago(14) },
+      { phase: InterviewPhase.WAITING, timestamp: ago(14) },
+      { phase: InterviewPhase.IN_PROGRESS, timestamp: new Date(ago(14).getTime() + 60000) },
+      { phase: InterviewPhase.COMPLETED, timestamp: new Date(ago(14).getTime() + 3600000) },
+    ],
+    scheduledAt: null,
     startedAt: ago(14),
-    endedAt: new Date(ago(14).getTime() + 28 * 60_000),
-    createdAt: ago(14),
+    completedAt: new Date(ago(14).getTime() + 3600000),
+    metadata: { language: 'en', timezone: 'America/New_York' },
   },
-  // Session 2: COMPLETED — Diana × Frontend (scored)
   {
     id: ids.session2,
     scenarioId: ids.scenarioFrontend,
     rubricId: ids.rubricFrontend,
     candidateId: ids.profileDiana,
     recruiterId: ids.recruiterAlice,
-    livekitRoom: `room_${ids.session2.slice(0, 8)}`,
+    livekitRoom: 'interview_frontend_diana',
     phase: InterviewPhase.COMPLETED,
+    phaseHistory: [
+      { phase: InterviewPhase.CREATED, timestamp: ago(12) },
+      { phase: InterviewPhase.WAITING, timestamp: ago(12) },
+      { phase: InterviewPhase.IN_PROGRESS, timestamp: new Date(ago(12).getTime() + 60000) },
+      { phase: InterviewPhase.COMPLETED, timestamp: new Date(ago(12).getTime() + 3000000) },
+    ],
+    scheduledAt: null,
     startedAt: ago(12),
-    endedAt: new Date(ago(12).getTime() + 32 * 60_000),
-    createdAt: ago(12),
+    completedAt: new Date(ago(12).getTime() + 3000000),
+    metadata: { language: 'en', timezone: 'America/New_York' },
   },
-  // Session 3: COMPLETED — Evan × Fullstack (scored)
   {
     id: ids.session3,
     scenarioId: ids.scenarioFullstack,
     rubricId: ids.rubricFullstack,
     candidateId: ids.profileEvan,
     recruiterId: ids.recruiterAlice,
-    livekitRoom: `room_${ids.session3.slice(0, 8)}`,
+    livekitRoom: 'interview_fullstack_evan',
     phase: InterviewPhase.COMPLETED,
+    phaseHistory: [
+      { phase: InterviewPhase.CREATED, timestamp: ago(10) },
+      { phase: InterviewPhase.WAITING, timestamp: ago(10) },
+      { phase: InterviewPhase.IN_PROGRESS, timestamp: new Date(ago(10).getTime() + 60000) },
+      { phase: InterviewPhase.COMPLETED, timestamp: new Date(ago(10).getTime() + 4500000) },
+    ],
+    scheduledAt: null,
     startedAt: ago(10),
-    endedAt: new Date(ago(10).getTime() + 42 * 60_000),
-    createdAt: ago(10),
+    completedAt: new Date(ago(10).getTime() + 4500000),
+    metadata: { language: 'en', timezone: 'America/Chicago' },
   },
-  // Session 4: QUESTIONING — Fiona × DevOps (in-progress)
   {
     id: ids.session4,
     scenarioId: ids.scenarioDevops,
     rubricId: ids.rubricDevops,
     candidateId: ids.profileFiona,
     recruiterId: ids.recruiterBob,
-    livekitRoom: `room_${ids.session4.slice(0, 8)}`,
-    phase: InterviewPhase.QUESTIONING,
-    startedAt: ago(1),
-    createdAt: ago(1),
+    livekitRoom: 'interview_devops_fiona',
+    phase: InterviewPhase.WAITING,
+    phaseHistory: [
+      { phase: InterviewPhase.CREATED, timestamp: ago(2) },
+      { phase: InterviewPhase.WAITING, timestamp: ago(2) },
+    ],
+    scheduledAt: new Date(Date.now() + 86400000), // Tomorrow
+    metadata: { language: 'en', timezone: 'America/Los_Angeles' },
   },
-  // Session 5: WAITING — George × Data Eng (pending join)
   {
     id: ids.session5,
     scenarioId: ids.scenarioDataEng,
     rubricId: ids.rubricDataEng,
     candidateId: ids.profileGeorge,
     recruiterId: ids.recruiterBob,
-    livekitRoom: `room_${ids.session5.slice(0, 8)}`,
-    phase: InterviewPhase.WAITING,
-    createdAt: ago(2),
+    livekitRoom: 'interview_dataeng_george',
+    phase: InterviewPhase.SCHEDULED,
+    phaseHistory: [
+      { phase: InterviewPhase.CREATED, timestamp: ago(1) },
+      { phase: InterviewPhase.SCHEDULED, timestamp: ago(1) },
+    ],
+    scheduledAt: new Date(Date.now() + 172800000), // 2 days from now
+    metadata: { language: 'en', timezone: 'America/New_York' },
   },
-  // Session 6: CREATED — Charlie × System Design (not started)
   {
     id: ids.session6,
-    scenarioId: ids.scenarioSystemDesign,
-    rubricId: ids.rubricSystemDesign,
+    scenarioId: ids.scenarioBackend,
+    rubricId: ids.rubricBackend,
     candidateId: ids.profileCharlie,
-    recruiterId: ids.recruiterAlice,
-    livekitRoom: `room_${ids.session6.slice(0, 8)}`,
+    recruiterId: ids.recruiterBob,
+    livekitRoom: 'interview_backend_charlie_2',
     phase: InterviewPhase.CREATED,
-    createdAt: ago(1),
+    phaseHistory: [
+      { phase: InterviewPhase.CREATED, timestamp: ago(0) },
+    ],
+    scheduledAt: new Date(Date.now() + 259200000), // 3 days from now
+    metadata: { language: 'en', timezone: 'America/New_York' },
   },
-  // Session 7: CREATED — Diana × Fullstack (not started)
   {
     id: ids.session7,
-    scenarioId: ids.scenarioFullstack,
-    rubricId: ids.rubricFullstack,
-    candidateId: ids.profileDiana,
+    scenarioId: ids.scenarioSystemDesign,
+    rubricId: ids.rubricSystemDesign,
+    candidateId: ids.profileEvan,
     recruiterId: ids.recruiterAlice,
-    livekitRoom: `room_${ids.session7.slice(0, 8)}`,
+    livekitRoom: 'interview_systemdesign_evan',
     phase: InterviewPhase.CREATED,
-    createdAt: ago(0),
+    phaseHistory: [
+      { phase: InterviewPhase.CREATED, timestamp: ago(0) },
+    ],
+    scheduledAt: null,
+    metadata: { language: 'en', timezone: 'America/Chicago' },
   },
-  // Session 8: CANCELLED — Evan × DevOps (cancelled)
   {
     id: ids.session8,
-    scenarioId: ids.scenarioDevops,
-    rubricId: ids.rubricDevops,
-    candidateId: ids.profileEvan,
+    scenarioId: ids.scenarioFrontend,
+    rubricId: ids.rubricFrontend,
+    candidateId: ids.profileDiana,
     recruiterId: ids.recruiterBob,
-    livekitRoom: `room_${ids.session8.slice(0, 8)}`,
+    livekitRoom: 'interview_frontend_diana_2',
     phase: InterviewPhase.CANCELLED,
-    createdAt: ago(8),
+    phaseHistory: [
+      { phase: InterviewPhase.CREATED, timestamp: ago(5) },
+      { phase: InterviewPhase.WAITING, timestamp: ago(5) },
+      { phase: InterviewPhase.CANCELLED, timestamp: ago(4) },
+    ],
+    scheduledAt: null,
+    endedAt: ago(4),
+    metadata: { language: 'en', timezone: 'America/New_York', cancelReason: 'Candidate requested reschedule' },
   },
 ];
 
 // ═══════════════════════════════════════════════════════════
-// TURNS (sample transcript data for completed sessions)
+// TURNS (sample transcript data)
 // ═══════════════════════════════════════════════════════════
 const turns = [
-  // ── Session 1 (Backend — Charlie) ──────────────────────
-  { id: uuid(), sessionId: ids.session1, index: 0, speakerRole: 'AI', transcript: "Hi Charlie, welcome to your Backend Engineer interview. I'm your AI interviewer today. Let's start with a brief introduction — can you tell me about your experience with backend development?", sttLatencyMs: null, llmTtftMs: 320, ttsFirstAudioMs: 180, e2eLatencyMs: 500, startedAt: ago(14) },
-  { id: uuid(), sessionId: ids.session1, index: 1, speakerRole: 'CANDIDATE', transcript: "Sure! I've been working as a backend engineer for about 4 years now. Most of my experience is with Node.js and TypeScript. At my last company, I led a migration from a monolithic Express app to a microservices architecture using NestJS and PostgreSQL. I've also worked with Redis for caching and BullMQ for job queues.", sttLatencyMs: 150, llmTtftMs: null, ttsFirstAudioMs: null, e2eLatencyMs: 150, startedAt: new Date(ago(14).getTime() + 30_000) },
-  { id: uuid(), sessionId: ids.session1, index: 2, speakerRole: 'AI', transcript: "That's great experience. Let's dive into API design. If you were designing a REST API for a multi-tenant SaaS application, how would you handle authentication, rate limiting, and API versioning?", sttLatencyMs: null, llmTtftMs: 280, ttsFirstAudioMs: 200, e2eLatencyMs: 480, startedAt: new Date(ago(14).getTime() + 90_000) },
-  { id: uuid(), sessionId: ids.session1, index: 3, speakerRole: 'CANDIDATE', transcript: "For authentication, I'd use JWT tokens with short expiration times and refresh tokens. Each tenant would have a unique API key for server-to-server communication. For rate limiting, I'd implement a sliding window approach using Redis, with different tiers per tenant plan. API versioning — I prefer URL-based versioning like /v1/resources because it's the most explicit and cacheable approach. I'd also use a deprecation header to notify clients of upcoming version sunsets.", sttLatencyMs: 140, llmTtftMs: null, ttsFirstAudioMs: null, e2eLatencyMs: 140, startedAt: new Date(ago(14).getTime() + 120_000) },
-  { id: uuid(), sessionId: ids.session1, index: 4, speakerRole: 'AI', transcript: "Excellent answer. Now let's talk about databases. You mentioned PostgreSQL — can you walk me through how you would optimize a slow query that involves joining multiple large tables?", sttLatencyMs: null, llmTtftMs: 250, ttsFirstAudioMs: 190, e2eLatencyMs: 440, startedAt: new Date(ago(14).getTime() + 210_000) },
-  { id: uuid(), sessionId: ids.session1, index: 5, speakerRole: 'CANDIDATE', transcript: "First, I'd use EXPLAIN ANALYZE to understand the query plan. Common issues I look for are sequential scans on large tables, missing indexes, and inefficient joins. I'd check if the right composite indexes exist for the WHERE and JOIN clauses. Sometimes denormalization or materialized views help for read-heavy queries. I've also used pg_stat_statements to identify the most expensive queries in production. For really complex cases, I've partitioned tables by date range to reduce scan size.", sttLatencyMs: 160, llmTtftMs: null, ttsFirstAudioMs: null, e2eLatencyMs: 160, startedAt: new Date(ago(14).getTime() + 260_000) },
-  { id: uuid(), sessionId: ids.session1, index: 6, speakerRole: 'AI', transcript: "Great. Let's move to testing. How do you approach testing a backend API? What's your testing strategy?", sttLatencyMs: null, llmTtftMs: 200, ttsFirstAudioMs: 170, e2eLatencyMs: 370, startedAt: new Date(ago(14).getTime() + 350_000) },
-  { id: uuid(), sessionId: ids.session1, index: 7, speakerRole: 'CANDIDATE', transcript: "I follow the testing pyramid. Unit tests for business logic and utilities — these are fast and isolated with mocked dependencies. Integration tests for the API endpoints using a real test database with Prisma migrations applied. I also write contract tests for external service integrations. For critical flows like authentication and payments, I add end-to-end tests. I aim for at least 80% coverage on business logic but I focus on meaningful coverage, not just hitting a number.", sttLatencyMs: 145, llmTtftMs: null, ttsFirstAudioMs: null, e2eLatencyMs: 145, startedAt: new Date(ago(14).getTime() + 390_000) },
-
-  // ── Session 2 (Frontend — Diana) ───────────────────────
-  { id: uuid(), sessionId: ids.session2, index: 0, speakerRole: 'AI', transcript: "Hello Diana, welcome! Let's start your Frontend Developer interview. Can you give me an overview of your frontend experience?", sttLatencyMs: null, llmTtftMs: 300, ttsFirstAudioMs: 190, e2eLatencyMs: 490, startedAt: ago(12) },
-  { id: uuid(), sessionId: ids.session2, index: 1, speakerRole: 'CANDIDATE', transcript: "Hi! I've been doing frontend development for 3 years, primarily with React and TypeScript. I've built several production applications using Next.js, and I'm passionate about design systems — I built a component library with Tailwind CSS and Storybook at my last company that's used across 4 product teams.", sttLatencyMs: 130, llmTtftMs: null, ttsFirstAudioMs: null, e2eLatencyMs: 130, startedAt: new Date(ago(12).getTime() + 25_000) },
-  { id: uuid(), sessionId: ids.session2, index: 2, speakerRole: 'AI', transcript: "Interesting! Let's talk about React performance. What strategies would you use to optimize a large React application that's experiencing slow renders?", sttLatencyMs: null, llmTtftMs: 270, ttsFirstAudioMs: 185, e2eLatencyMs: 455, startedAt: new Date(ago(12).getTime() + 80_000) },
-  { id: uuid(), sessionId: ids.session2, index: 3, speakerRole: 'CANDIDATE', transcript: "First, I'd use React DevTools Profiler to identify which components are re-rendering unnecessarily. Common fixes include using React.memo for pure components, useMemo and useCallback for expensive computations and callbacks. I'd also look at state management — lifting state up too high causes cascading re-renders, so I'd colocate state where possible or use a library like Zustand for fine-grained subscriptions. For lists, I'd use virtualization with react-window. Code splitting with dynamic imports and Suspense helps with initial load time.", sttLatencyMs: 155, llmTtftMs: null, ttsFirstAudioMs: null, e2eLatencyMs: 155, startedAt: new Date(ago(12).getTime() + 115_000) },
-  { id: uuid(), sessionId: ids.session2, index: 4, speakerRole: 'AI', transcript: "Great knowledge of optimization techniques. Now, how do you approach accessibility in your frontend applications?", sttLatencyMs: null, llmTtftMs: 230, ttsFirstAudioMs: 175, e2eLatencyMs: 405, startedAt: new Date(ago(12).getTime() + 200_000) },
-  { id: uuid(), sessionId: ids.session2, index: 5, speakerRole: 'CANDIDATE', transcript: "Accessibility is something I build in from the start, not bolt on later. I use semantic HTML elements — nav, main, article, button instead of clickable divs. I ensure proper heading hierarchy and ARIA labels where semantic HTML isn't enough. All interactive elements need to be keyboard navigable. I test with screen readers like VoiceOver and use axe-core in our CI pipeline to catch regressions. I follow WCAG 2.1 AA as the minimum standard and I've trained my team on accessibility best practices.", sttLatencyMs: 140, llmTtftMs: null, ttsFirstAudioMs: null, e2eLatencyMs: 140, startedAt: new Date(ago(12).getTime() + 240_000) },
-
-  // ── Session 3 (Fullstack — Evan) ───────────────────────
-  { id: uuid(), sessionId: ids.session3, index: 0, speakerRole: 'AI', transcript: "Welcome Evan! This is a Senior Full-Stack Engineer interview. Given your 6 years of experience, let's start with a system design question. How would you architect a real-time collaborative document editor like Google Docs?", sttLatencyMs: null, llmTtftMs: 350, ttsFirstAudioMs: 200, e2eLatencyMs: 550, startedAt: ago(10) },
-  { id: uuid(), sessionId: ids.session3, index: 1, speakerRole: 'CANDIDATE', transcript: "Great question! I'd break this into several components. First, the conflict resolution strategy — I'd use CRDTs (Conflict-free Replicated Data Types) or Operational Transform. CRDTs are more modern and handle eventual consistency well. For the real-time sync layer, I'd use WebSockets with a message broker like Redis Pub/Sub for horizontal scaling. The document storage would be a combination of PostgreSQL for metadata and a document store for the actual content with version history. On the frontend, I'd use a rich text editor like TipTap/ProseMirror that has built-in CRDT support.", sttLatencyMs: 165, llmTtftMs: null, ttsFirstAudioMs: null, e2eLatencyMs: 165, startedAt: new Date(ago(10).getTime() + 40_000) },
-  { id: uuid(), sessionId: ids.session3, index: 2, speakerRole: 'AI', transcript: "That's a solid high-level architecture. How would you handle the case where a user goes offline and comes back online with changes?", sttLatencyMs: null, llmTtftMs: 260, ttsFirstAudioMs: 180, e2eLatencyMs: 440, startedAt: new Date(ago(10).getTime() + 130_000) },
-  { id: uuid(), sessionId: ids.session3, index: 3, speakerRole: 'CANDIDATE', transcript: "This is where CRDTs really shine. The client would maintain a local copy and queue operations while offline. When the connection is restored, it replays the operations to the server. CRDTs guarantee convergence without conflicts — the same set of operations always produces the same result regardless of order. I'd also implement an IndexedDB cache on the client for durability, with a service worker to handle the offline-to-online transition. The sync protocol would use vector clocks to track which operations each client has seen.", sttLatencyMs: 150, llmTtftMs: null, ttsFirstAudioMs: null, e2eLatencyMs: 150, startedAt: new Date(ago(10).getTime() + 170_000) },
-  { id: uuid(), sessionId: ids.session3, index: 4, speakerRole: 'AI', transcript: "Impressive depth. Let's switch to leadership. Can you describe a time when you had to make a difficult technical decision that affected multiple teams?", sttLatencyMs: null, llmTtftMs: 240, ttsFirstAudioMs: 175, e2eLatencyMs: 415, startedAt: new Date(ago(10).getTime() + 260_000) },
-  { id: uuid(), sessionId: ids.session3, index: 5, speakerRole: 'CANDIDATE', transcript: "At my previous company, we had to decide between migrating to a monorepo or keeping separate repositories for our 8 microservices. I led the technical evaluation — I wrote an RFC, set up a proof of concept with Turborepo, and presented the trade-offs to all 3 engineering teams. The key concern was build times and CI complexity. After analysis, we went with the monorepo because it solved our biggest pain point: coordinating API changes across services. I managed the migration over 6 weeks with zero downtime by using a phased approach. It reduced our PR review time by 40% because reviewers could see the full impact of changes.", sttLatencyMs: 170, llmTtftMs: null, ttsFirstAudioMs: null, e2eLatencyMs: 170, startedAt: new Date(ago(10).getTime() + 310_000) },
+  // Session 1 - Backend Interview with Charlie
+  { id: uuid(), sessionId: ids.session1, index: 0, speakerRole: SpeakerRole.AI, transcript: "Hi Charlie, welcome to your Backend Engineer interview. I'm your AI interviewer today. Let's start with a brief introduction — can you tell me about your experience with backend development?", sttLatencyMs: null, llmTtftMs: 320, ttsFirstAudioMs: 180, e2eLatencyMs: 500, tokensUsed: 45, startedAt: ago(14) },
+  { id: uuid(), sessionId: ids.session1, index: 1, speakerRole: SpeakerRole.CANDIDATE, transcript: "Sure! I've been working as a backend engineer for about 4 years now. Most of my experience is with Node.js and TypeScript. At my last company, I led a migration from a monolithic Express app to a microservices architecture using NestJS and PostgreSQL. I've also worked with Redis for caching and BullMQ for job queues.", sttLatencyMs: 150, llmTtftMs: null, ttsFirstAudioMs: null, e2eLatencyMs: 150, tokensUsed: 85, startedAt: new Date(ago(14).getTime() + 30_000) },
+  { id: uuid(), sessionId: ids.session1, index: 2, speakerRole: SpeakerRole.AI, transcript: "Great background! Let's dive into a technical question. How would you design a multi-tenant SaaS API with proper authentication, rate limiting, and API versioning?", sttLatencyMs: null, llmTtftMs: 280, ttsFirstAudioMs: 170, e2eLatencyMs: 450, tokensUsed: 38, startedAt: new Date(ago(14).getTime() + 60_000) },
+  { id: uuid(), sessionId: ids.session1, index: 3, speakerRole: SpeakerRole.CANDIDATE, transcript: "For authentication, I'd use JWT tokens with short expiration times and refresh tokens. Each tenant would have a unique API key for server-to-server communication. For rate limiting, I'd implement a sliding window approach using Redis, with different tiers per tenant plan. API versioning — I prefer URL-based versioning like /v1/resources because it's the most explicit and cacheable approach. I'd also use a deprecation header to notify clients of upcoming version sunsets.", sttLatencyMs: 140, llmTtftMs: null, ttsFirstAudioMs: null, e2eLatencyMs: 140, tokensUsed: 110, startedAt: new Date(ago(14).getTime() + 120_000) },
+  { id: uuid(), sessionId: ids.session1, index: 4, speakerRole: SpeakerRole.AI, transcript: "Excellent approach! Now let's talk about database optimization. If you have a slow PostgreSQL query, what's your systematic approach to diagnosing and fixing it?", sttLatencyMs: null, llmTtftMs: 260, ttsFirstAudioMs: 160, e2eLatencyMs: 420, tokensUsed: 35, startedAt: new Date(ago(14).getTime() + 180_000) },
+  { id: uuid(), sessionId: ids.session1, index: 5, speakerRole: SpeakerRole.CANDIDATE, transcript: "First, I'd use EXPLAIN ANALYZE to understand the query plan. Common issues I look for are sequential scans on large tables, missing indexes, and inefficient joins. I'd check if the right composite indexes exist for the WHERE and JOIN clauses. Sometimes denormalization or materialized views help for read-heavy queries. I've also used pg_stat_statements to identify the most expensive queries in production. For really complex cases, I've partitioned tables by date range to reduce scan size.", sttLatencyMs: 160, llmTtftMs: null, ttsFirstAudioMs: null, e2eLatencyMs: 160, tokensUsed: 120, startedAt: new Date(ago(14).getTime() + 260_000) },
+  { id: uuid(), sessionId: ids.session1, index: 6, speakerRole: SpeakerRole.AI, transcript: "Great answer! One more question — how do you approach testing in a backend application? What types of tests do you write and what's your target coverage?", sttLatencyMs: null, llmTtftMs: 240, ttsFirstAudioMs: 150, e2eLatencyMs: 390, tokensUsed: 32, startedAt: new Date(ago(14).getTime() + 320_000) },
+  { id: uuid(), sessionId: ids.session1, index: 7, speakerRole: SpeakerRole.CANDIDATE, transcript: "I follow the testing pyramid. Unit tests for business logic and utilities — these are fast and isolated with mocked dependencies. Integration tests for the API endpoints using a real test database with Prisma migrations applied. I also write contract tests for external service integrations. For critical flows like authentication and payments, I add end-to-end tests. I aim for at least 80% coverage on business logic but I focus on meaningful coverage, not just hitting a number.", sttLatencyMs: 145, llmTtftMs: null, ttsFirstAudioMs: null, e2eLatencyMs: 145, tokensUsed: 115, startedAt: new Date(ago(14).getTime() + 390_000) },
 ];
 
 // ═══════════════════════════════════════════════════════════
-// SCORECARDS (for completed sessions)
+// SCORECARDS
 // ═══════════════════════════════════════════════════════════
-const scoreCards = [
-  // Session 1 — Charlie Backend: STRONG YES
+const scorecards = [
   {
     id: ids.scorecard1,
     sessionId: ids.session1,
-    overallScore: 42.5,
+    overallScore: 38,
     maxPossibleScore: 50,
-    criterionScores: [
-      { criterionName: 'API Design', score: 9, maxScore: 10, evidence: 'Demonstrated strong knowledge of REST design, authentication patterns, and versioning strategies.', reasoning: 'Covered JWT + refresh tokens, tenant API keys, rate limiting with Redis, and URL-based versioning with deprecation headers. Comprehensive and production-ready approach.' },
-      { criterionName: 'Database Knowledge', score: 8.5, maxScore: 10, evidence: 'Explained EXPLAIN ANALYZE, composite indexes, materialized views, and table partitioning.', reasoning: 'Solid understanding of PostgreSQL optimization techniques. Could have gone deeper into index types (B-tree vs GIN) and connection pooling.' },
-      { criterionName: 'Error Handling & Testing', score: 9, maxScore: 10, evidence: 'Described testing pyramid with unit, integration, contract, and E2E tests.', reasoning: 'Mature testing philosophy focusing on meaningful coverage. Mentioned using real test databases and contract tests for external services.' },
-      { criterionName: 'System Design Awareness', score: 8, maxScore: 10, evidence: 'Referenced Redis caching, BullMQ queues, and microservices migration experience.', reasoning: 'Good practical experience with distributed patterns. Led a monolith-to-microservices migration which shows real-world understanding.' },
-      { criterionName: 'Communication', score: 8, maxScore: 10, evidence: 'Clear, structured responses throughout the interview.', reasoning: 'Well-organized answers with concrete examples. Occasionally could be more concise.' },
+    normalizedScore: 76,
+    recommendation: Recommendation.YES,
+    evaluatedBy: 'gpt-4o-mini',
+    evaluatedAt: new Date(ago(14).getTime() + 4200000),
+    criteria: [
+      { name: 'Technical Depth', description: 'Demonstrates deep understanding of backend concepts', score: 9, maxScore: 10, weight: 0.3, evidence: 'Discussed microservices migration, Redis caching, and PostgreSQL optimization with specific examples.', reasoning: 'Showed strong technical depth with real-world experience.', order: 0 },
+      { name: 'Problem Solving', description: 'Approaches problems systematically', score: 8, maxScore: 10, weight: 0.25, evidence: 'Systematic approach to API design with clear reasoning for each decision.', reasoning: 'Well-structured problem-solving approach.', order: 1 },
+      { name: 'Communication', description: 'Explains technical concepts clearly', score: 8, maxScore: 10, weight: 0.25, evidence: 'Clear, structured responses throughout the interview.', reasoning: 'Well-organized answers with concrete examples. Occasionally could be more concise.', order: 2 },
+      { name: 'Best Practices', description: 'Follows industry best practices', score: 8, maxScore: 10, weight: 0.2, evidence: 'Mentioned testing pyramid, EXPLAIN ANALYZE, and API versioning strategies.', reasoning: 'Strong awareness of best practices.', order: 3 },
     ],
-    strengths: [
-      'Excellent API design knowledge with practical multi-tenant experience',
-      'Strong database optimization skills with real-world PostgreSQL expertise',
-      'Mature testing philosophy with comprehensive strategy',
-      'Hands-on microservices migration experience',
-    ],
-    weaknesses: [
-      'Could deepen knowledge of advanced database index types',
-      'Could provide more quantitative performance metrics from past projects',
-    ],
-    recommendation: 'STRONG_YES',
-    evaluatedAt: new Date(ago(14).getTime() + 35 * 60_000),
   },
-  // Session 2 — Diana Frontend: YES
   {
     id: ids.scorecard2,
     sessionId: ids.session2,
-    overallScore: 38,
+    overallScore: 42,
     maxPossibleScore: 50,
-    criterionScores: [
-      { criterionName: 'React Proficiency', score: 8.5, maxScore: 10, evidence: 'Demonstrated knowledge of React.memo, useMemo, useCallback, and component optimization patterns.', reasoning: 'Strong understanding of React rendering lifecycle and optimization. Mentioned React DevTools Profiler and state colocation.' },
-      { criterionName: 'State Management', score: 7.5, maxScore: 10, evidence: 'Mentioned Zustand for fine-grained subscriptions and state colocation principle.', reasoning: 'Good practical knowledge. Could have discussed more patterns like server state management (React Query/SWR) or state machines.' },
-      { criterionName: 'CSS & Layout', score: 7, maxScore: 10, evidence: 'Built a Tailwind-based component library used across 4 teams.', reasoning: 'Solid experience with design systems and Tailwind. Did not deeply discuss responsive patterns or CSS architecture (BEM, CSS modules vs. utility-first trade-offs).' },
-      { criterionName: 'Performance & Accessibility', score: 8, maxScore: 10, evidence: 'Described semantic HTML, ARIA labels, keyboard navigation, screen reader testing, and axe-core in CI.', reasoning: 'Excellent accessibility knowledge — builds it in from the start rather than as an afterthought. Mentioned WCAG 2.1 AA and team training.' },
-      { criterionName: 'Testing & Tooling', score: 7, maxScore: 10, evidence: 'Mentioned Storybook for component development and CI pipeline integration.', reasoning: 'Good tooling experience but did not discuss unit/integration testing frameworks or testing strategies in depth during the interview.' },
+    normalizedScore: 84,
+    recommendation: Recommendation.STRONG_YES,
+    evaluatedBy: 'gpt-4o-mini',
+    evaluatedAt: new Date(ago(12).getTime() + 3600000),
+    criteria: [
+      { name: 'React Proficiency', description: 'Strong understanding of React patterns', score: 9, maxScore: 10, weight: 0.3, evidence: 'Discussed advanced React patterns including memo, useMemo, and useCallback.', reasoning: 'Excellent React knowledge demonstrated.', order: 0 },
+      { name: 'CSS & Design', description: 'Creates visually appealing and responsive UIs', score: 9, maxScore: 10, weight: 0.25, evidence: 'Built component library with Tailwind CSS and Storybook.', reasoning: 'Strong design system experience.', order: 1 },
+      { name: 'Accessibility', description: 'Implements accessible components', score: 8, maxScore: 10, weight: 0.25, evidence: 'Mentioned semantic HTML, ARIA labels, keyboard navigation, and WCAG compliance.', reasoning: 'Good accessibility knowledge with practical experience.', order: 2 },
+      { name: 'Performance', description: 'Optimizes for performance', score: 8, maxScore: 10, weight: 0.2, evidence: 'Discussed virtualization, code splitting, and memoization strategies.', reasoning: 'Solid performance optimization skills.', order: 3 },
     ],
-    strengths: [
-      'Strong React optimization skills with practical profiling experience',
-      'Excellent accessibility-first mindset with WCAG compliance',
-      'Design system experience with Storybook and cross-team adoption',
-    ],
-    weaknesses: [
-      'Could deepen state management knowledge (server state patterns)',
-      'Limited discussion of CSS architecture trade-offs',
-      'Testing strategy needs more depth beyond Storybook',
-    ],
-    recommendation: 'YES',
-    evaluatedAt: new Date(ago(12).getTime() + 38 * 60_000),
   },
-  // Session 3 — Evan Fullstack: STRONG YES
   {
     id: ids.scorecard3,
     sessionId: ids.session3,
-    overallScore: 45,
+    overallScore: 44,
     maxPossibleScore: 50,
-    criterionScores: [
-      { criterionName: 'Architecture & Design', score: 9.5, maxScore: 10, evidence: 'Designed a real-time collaborative editor with CRDTs, WebSocket sync, and offline-first architecture.', reasoning: 'Exceptional system design skills. Deep understanding of CRDTs, vector clocks, and eventual consistency. Production-ready approach with IndexedDB caching and service workers.' },
-      { criterionName: 'Frontend Depth', score: 8.5, maxScore: 10, evidence: 'Referenced TipTap/ProseMirror for rich text editing with CRDT support.', reasoning: 'Good knowledge of complex frontend libraries. Could have discussed rendering optimization for large documents.' },
-      { criterionName: 'Backend Depth', score: 9, maxScore: 10, evidence: 'Described WebSocket scaling with Redis Pub/Sub, document storage strategy, and version history.', reasoning: 'Strong backend architecture with appropriate technology choices. Good understanding of horizontal scaling patterns.' },
-      { criterionName: 'Technical Leadership', score: 9.5, maxScore: 10, evidence: 'Led monorepo migration affecting 3 teams and 8 services — wrote RFC, POC, and managed 6-week phased rollout.', reasoning: 'Outstanding leadership example with measurable impact (40% PR review time reduction). Demonstrated cross-team communication and careful migration planning.' },
-      { criterionName: 'Problem Solving', score: 8.5, maxScore: 10, evidence: 'Structured approach to both system design and organizational challenges.', reasoning: 'Excellent at breaking down complex problems. Strong at articulating trade-offs and making data-driven decisions.' },
+    normalizedScore: 88,
+    recommendation: Recommendation.STRONG_YES,
+    evaluatedBy: 'gpt-4o-mini',
+    evaluatedAt: new Date(ago(10).getTime() + 5400000),
+    criteria: [
+      { name: 'System Design', description: 'Designs scalable and maintainable systems', score: 9, maxScore: 10, weight: 0.3, evidence: 'Proposed CRDT-based architecture with WebSocket sync and IndexedDB caching.', reasoning: 'Excellent system design skills with modern approaches.', order: 0 },
+      { name: 'Technical Breadth', description: 'Demonstrates knowledge across the stack', score: 9, maxScore: 10, weight: 0.25, evidence: 'Discussed frontend, backend, and infrastructure considerations.', reasoning: 'Strong full-stack knowledge.', order: 1 },
+      { name: 'Problem Solving', description: 'Approaches problems systematically', score: 9, maxScore: 10, weight: 0.25, evidence: 'Broke down complex problem into manageable components.', reasoning: 'Excellent problem decomposition.', order: 2 },
+      { name: 'Communication', description: 'Explains technical concepts clearly', score: 8, maxScore: 10, weight: 0.2, evidence: 'Clear explanations with concrete examples from past experience.', reasoning: 'Strong communication with minor room for improvement.', order: 3 },
     ],
-    strengths: [
-      'Exceptional system design skills with deep distributed systems knowledge',
-      'Proven technical leadership with measurable cross-team impact',
-      'Strong full-stack depth — equally capable on frontend and backend',
-      'Data-driven decision making (RFC, POC, metrics)',
-    ],
-    weaknesses: [
-      'Could provide more depth on frontend performance optimization',
-      'Senior role would benefit from discussing mentorship philosophy',
-    ],
-    recommendation: 'STRONG_YES',
-    evaluatedAt: new Date(ago(10).getTime() + 48 * 60_000),
   },
 ];
 
@@ -627,37 +674,45 @@ const reports = [
     id: ids.report1,
     sessionId: ids.session1,
     scoreCardId: ids.scorecard1,
-    pdfUrl: null, // Would be generated by worker
-    generatedAt: new Date(ago(14).getTime() + 40 * 60_000),
+    pdfUrl: '/reports/backend-charlie-76.pdf',
+    summary: 'Charlie demonstrated strong backend engineering skills with 4 years of practical experience. Key strengths include microservices architecture, database optimization, and testing best practices. Recommended for hire for mid-to-senior backend roles.',
+    metadata: { generatorVersion: '1.0.0', modelUsed: 'gpt-4o-mini', templateUsed: 'backend-standard' },
+    generatedAt: new Date(ago(14).getTime() + 5400000),
   },
 ];
 
 // ═══════════════════════════════════════════════════════════
 // MODEL CONFIG
 // ═══════════════════════════════════════════════════════════
-const modelConfig = {
-  id: ids.modelConfig,
-  name: 'default',
-  sttProvider: 'deepgram',
-  sttModel: 'nova-2',
-  llmProvider: 'openai',
-  llmModel: 'gpt-4o',
-  ttsProvider: 'openai',
-  ttsVoice: 'alloy',
-  embeddingProvider: 'openai',
-  embeddingModel: 'text-embedding-3-small',
-  isDefault: true,
-};
+const modelConfigs = [
+  {
+    id: ids.modelConfig,
+    name: 'Default Configuration',
+    sttProvider: 'deepgram',
+    sttModel: 'nova-2',
+    llmProvider: 'openai',
+    llmModel: 'gpt-4o-mini',
+    ttsProvider: 'openai',
+    ttsVoice: 'alloy',
+    embeddingProvider: 'openai',
+    embeddingModel: 'text-embedding-3-small',
+    isDefault: true,
+    isActive: true,
+    config: {
+      deepgram: { language: 'en', detectLanguage: true },
+      openai: { temperature: 0.7, maxTokens: 500 },
+    },
+  },
+];
 
 // ═══════════════════════════════════════════════════════════
-// SEED EXECUTION
+// MAIN SEED FUNCTION
 // ═══════════════════════════════════════════════════════════
 async function main() {
-  console.log('🌱 Seeding SmartHirink database...\n');
+  console.log('🌱 Seeding database...\n');
 
-  // Clear existing data (in reverse dependency order)
+  // Delete existing data (in reverse dependency order)
   console.log('  Clearing existing data...');
-  await prisma.auditLog.deleteMany();
   await prisma.report.deleteMany();
   await prisma.scoreCard.deleteMany();
   await prisma.turn.deleteMany();
@@ -666,64 +721,98 @@ async function main() {
   await prisma.rubric.deleteMany();
   await prisma.scenario.deleteMany();
   await prisma.candidateProfile.deleteMany();
+  await prisma.recruiterProfile.deleteMany();
   await prisma.user.deleteMany();
   await prisma.modelConfig.deleteMany();
 
-  // Users
+  // Create users
   console.log('  Creating users...');
   await prisma.user.createMany({ data: users });
 
-  // Candidate profiles
+  // Create recruiter profiles
+  console.log('  Creating recruiter profiles...');
+  await prisma.recruiterProfile.createMany({ data: recruiterProfiles });
+
+  // Create candidate profiles
   console.log('  Creating candidate profiles...');
   await prisma.candidateProfile.createMany({ data: candidateProfiles });
 
-  // Scenarios
+  // Create scenarios
   console.log('  Creating scenarios...');
   await prisma.scenario.createMany({ data: scenarios });
 
-  // Rubrics + criteria
-  console.log('  Creating rubrics & criteria...');
+  // Create rubrics with criteria
+  console.log('  Creating rubrics...');
   for (const rubric of rubrics) {
     const { criteria, ...rubricData } = rubric;
-    await prisma.rubric.create({ data: rubricData });
-    await prisma.rubricCriterion.createMany({ data: criteria });
+    await prisma.rubric.create({
+      data: {
+        ...rubricData,
+        criteria: {
+          create: criteria.map((c, i) => ({
+            name: c.name,
+            description: c.description,
+            maxScore: c.maxScore,
+            weight: c.weight,
+            order: c.order,
+          })),
+        },
+      },
+    });
   }
 
-  // Interview sessions
+  // Create interview sessions
   console.log('  Creating interview sessions...');
   await prisma.interviewSession.createMany({ data: sessions });
 
-  // Turns
-  console.log('  Creating transcript turns...');
+  // Create turns
+  console.log('  Creating turns...');
   await prisma.turn.createMany({ data: turns });
 
-  // Score cards
-  console.log('  Creating score cards...');
-  for (const sc of scoreCards) {
-    await prisma.scoreCard.create({ data: sc });
+  // Create scorecards with criteria
+  console.log('  Creating scorecards...');
+  for (const scorecard of scorecards) {
+    const { criteria, ...scorecardData } = scorecard;
+    await prisma.scoreCard.create({
+      data: {
+        ...scorecardData,
+        criteria: {
+          create: criteria.map((c) => ({
+            name: c.name,
+            description: c.description,
+            score: c.score,
+            maxScore: c.maxScore,
+            weight: c.weight,
+            evidence: c.evidence,
+            reasoning: c.reasoning,
+            order: c.order,
+          })),
+        },
+      },
+    });
   }
 
-  // Reports
+  // Create reports
   console.log('  Creating reports...');
   await prisma.report.createMany({ data: reports });
 
-  // Model config
+  // Create model config
   console.log('  Creating model config...');
-  await prisma.modelConfig.create({ data: modelConfig });
+  await prisma.modelConfig.create({ data: modelConfigs[0] });
 
-  // Summary
-  console.log('\n✅ Seed complete!\n');
+  console.log('\n✅ Seeding completed successfully!\n');
+  console.log('📊 Summary:');
   console.log('  Users:              8 (1 admin, 2 recruiters, 5 candidates)');
+  console.log('  Recruiter Profiles: 2');
   console.log('  Candidate Profiles: 5');
   console.log('  Scenarios:          6');
-  console.log('  Rubrics:            6 (with 5 criteria each)');
-  console.log('  Interview Sessions: 8 (3 completed, 1 in-progress, 1 waiting, 2 created, 1 cancelled)');
-  console.log('  Transcript Turns:   20');
-  console.log('  Score Cards:        3');
+  console.log('  Rubrics:            6 (with 4 criteria each = 24 total criteria)');
+  console.log('  Interview Sessions: 8 (3 completed, 1 waiting, 1 scheduled, 2 created, 1 cancelled)');
+  console.log('  Turns:              8 (sample transcript data)');
+  console.log('  Scorecards:         3');
   console.log('  Reports:            1');
-  console.log('  Model Configs:      1');
-  console.log('\n📧 Login credentials (all accounts):');
-  console.log('  Password: password123');
+  console.log('  Model Configs:      1\n');
+  console.log('📧 Test credentials (all passwords: "password123"):');
   console.log('  Admin:     admin@smarthirink.com');
   console.log('  Recruiter: alice.nguyen@smarthirink.com');
   console.log('  Recruiter: bob.tran@smarthirink.com');
@@ -731,12 +820,14 @@ async function main() {
   console.log('  Candidate: diana.pham@example.com');
   console.log('  Candidate: evan.vo@example.com');
   console.log('  Candidate: fiona.hoang@example.com');
-  console.log('  Candidate: george.do@example.com');
+  console.log('  Candidate: george.do@example.com\n');
 }
 
 main()
   .catch((e) => {
-    console.error('❌ Seed failed:', e);
+    console.error('❌ Seeding failed:', e);
     process.exit(1);
   })
-  .finally(() => prisma.$disconnect());
+  .finally(async () => {
+    await prisma.$disconnect();
+  });

@@ -96,6 +96,7 @@ describe('RubricCreateSchema', () => {
   it('accepts valid rubric', () => {
     const result = RubricCreateSchema.parse({
       scenarioId: '550e8400-e29b-41d4-a716-446655440000',
+      title: 'Backend Interview Rubric',
       criteria: [{ name: 'Technical Depth', description: 'Deep technical knowledge' }],
     });
     expect(result.criteria[0].maxScore).toBe(5); // default
@@ -106,6 +107,7 @@ describe('RubricCreateSchema', () => {
     expect(() =>
       RubricCreateSchema.parse({
         scenarioId: '550e8400-e29b-41d4-a716-446655440000',
+        title: 'Backend Interview Rubric',
         criteria: [],
       }),
     ).toThrow();
@@ -169,7 +171,7 @@ describe('AgentDataMessageSchema', () => {
   it('validates state message', () => {
     const msg = AgentDataMessageSchema.parse({
       type: 'state',
-      phase: 'QUESTIONING',
+      phase: 'IN_PROGRESS',
       speaking: { who: 'AI' },
       vad: true,
       t: Date.now(),

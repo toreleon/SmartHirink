@@ -9,11 +9,11 @@ export async function logAudit(
 ): Promise<void> {
   await prisma.auditLog.create({
     data: {
-      action,
+      action: action as any,
       entity,
       entityId,
       userId,
-      metadata: metadata as any,
+      metadata: metadata ? (JSON.parse(JSON.stringify(metadata)) as any) : null,
     },
   });
 }

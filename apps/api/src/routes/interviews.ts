@@ -1,12 +1,18 @@
 import type { FastifyInstance } from 'fastify';
-import { InterviewSessionCreateSchema, LiveKitTokenRequestSchema } from '@smarthirink/core';
+import { InterviewPhase as PrismaInterviewPhase } from '@prisma/client';
+import { InterviewPhase, InterviewSessionCreateSchema, LiveKitTokenRequestSchema } from '@smarthirink/core';
 import prisma from '../lib/prisma.js';
+import { InterviewSessionRepository } from '../lib/interview-repository.js';
 import { ensureRoom, mintLiveKitToken } from '../lib/livekit.js';
-import { evaluationQueue, reportQueue } from '../lib/queue.js';
 import { logAudit } from '../lib/audit.js';
 import { authorizeSession } from '../lib/authorize.js';
+import { evaluationQueue } from '../lib/queue.js';
+import { sendInterviewInvite } from '../lib/email.js';
+import { loadEnv } from '../config.js';
 
 export async function interviewRoutes(app: FastifyInstance) {
+  const repo = new InterviewSessionRepository(prisma);
+
   // ─── Create Interview Session ──────────────────────────
   app.post('/interviews', { onRequest: [app.authenticate] }, async (req, reply) => {
     const payload = req.user as { sub: string; role: string };
@@ -18,29 +24,29 @@ export async function interviewRoutes(app: FastifyInstance) {
 
     // Validate that the recruiter, scenario, rubric, and candidate all exist
     const [recruiter, scenario, rubric, candidate] = await Promise.all([
-      prisma.user.findUnique({ where: { id: payload.sub }, select: { id: true } }),
-      prisma.scenario.findUnique({ where: { id: body.scenarioId }, select: { id: true } }),
-      prisma.rubric.findUnique({ where: { id: body.rubricId }, select: { id: true } }),
-      prisma.candidateProfile.findUnique({ where: { id: body.candidateId }, select: { id: true } }),
+      prisma.user.findUnique({ where: { id: payload.sub }, select: { id: true, role: true } }),
+      prisma.scenario.findUnique({ where: { id: body.scenarioId }, select: { id: true, deletedAt: true } }),
+      prisma.rubric.findUnique({ where: { id: body.rubricId }, select: { id: true, deletedAt: true } }),
+      prisma.candidateProfile.findUnique({ where: { id: body.candidateId }, select: { id: true, deletedAt: true } }),
     ]);
 
-    if (!recruiter) return reply.status(401).send({ error: 'Your session is invalid. Please log in again.' });
+    if (!recruiter || recruiter.role !== 'RECRUITER' && recruiter.role !== 'ADMIN') {
+      return reply.status(401).send({ error: 'Your session is invalid. Please log in again.' });
+    }
     if (!scenario) return reply.status(404).send({ error: 'Scenario not found' });
     if (!rubric) return reply.status(404).send({ error: 'Rubric not found' });
     if (!candidate) return reply.status(404).send({ error: 'Candidate not found' });
 
-    const session = await prisma.interviewSession.create({
-      data: {
-        scenarioId: body.scenarioId,
-        rubricId: body.rubricId,
-        candidateId: body.candidateId,
-        recruiterId: payload.sub,
-        livekitRoom: `interview_${crypto.randomUUID().slice(0, 8)}`,
-        phase: 'CREATED',
-      },
+    const session = await repo.create({
+      scenarioId: body.scenarioId,
+      rubricId: body.rubricId,
+      candidateId: body.candidateId,
+      recruiterId: payload.sub,
+      livekitRoom: `interview_${crypto.randomUUID().slice(0, 8)}`,
+      scheduledAt: body.scheduledAt ?? null,
+      metadata: body.metadata ?? {},
     });
 
-    await logAudit('CREATE_SESSION', 'InterviewSession', session.id, payload.sub);
     return reply.status(201).send(session);
   });
 
@@ -57,36 +63,60 @@ export async function interviewRoutes(app: FastifyInstance) {
     // Clamp pagination bounds
     const pageNum = Math.max(1, parseInt(page) || 1);
     const limitNum = Math.min(Math.max(1, parseInt(limit) || 20), 100);
-    const skip = (pageNum - 1) * limitNum;
 
     const where: Record<string, unknown> = {};
+    let profileId: string | undefined;
+
     if (payload.role === 'CANDIDATE') {
       const profile = await prisma.candidateProfile.findUnique({
         where: { userId: payload.sub },
         select: { id: true },
       });
-      if (profile) where.candidateId = profile.id;
-    } else if (payload.role === 'RECRUITER') {
-      where.recruiterId = payload.sub;
+      if (profile) profileId = profile.id;
+      where.candidateId = profileId;
+    } else if (payload.role === 'RECRUITER' || payload.role === 'ADMIN') {
+      if (payload.role === 'RECRUITER') {
+        where.recruiterId = payload.sub;
+      }
+      if (candidateId) {
+        where.candidateId = candidateId;
+      }
     }
-    if (phase) where.phase = phase;
-    if (candidateId && payload.role !== 'CANDIDATE') where.candidateId = candidateId;
+
+    if (phase) {
+      where.phase = phase;
+    }
 
     const [total, items] = await Promise.all([
       prisma.interviewSession.count({ where }),
       prisma.interviewSession.findMany({
         where,
-        skip,
+        skip: (pageNum - 1) * limitNum,
         take: limitNum,
         orderBy: { createdAt: 'desc' },
         include: {
           scenario: { select: { title: true, position: true, level: true } },
           candidate: { select: { fullName: true, email: true } },
+          recruiter: { 
+            include: {
+              candidateProfile: true,
+              recruiterProfile: true,
+            },
+          },
         },
       }),
     ]);
 
-    return { total, page: pageNum, limit: limitNum, items };
+    // Map recruiter fullName from profile
+    const itemsWithNames = items.map((item: any) => ({
+      ...item,
+      recruiter: {
+        ...item.recruiter,
+        fullName: item.recruiter.candidateProfile?.fullName ?? item.recruiter.recruiterProfile?.fullName ?? item.recruiter.email,
+      },
+    }));
+
+    return { total, page: pageNum, limit: limitNum, items: itemsWithNames };
   });
 
   // ─── Get Session Detail ────────────────────────────────
@@ -98,21 +128,11 @@ export async function interviewRoutes(app: FastifyInstance) {
     if (!session) return reply.status(404).send({ error: 'Not found' });
     if (!allowed) return reply.status(403).send({ error: 'Forbidden' });
 
-    // Return full session with includes
-    const full = await prisma.interviewSession.findUnique({
-      where: { id },
-      include: {
-        scenario: { include: { rubrics: { include: { criteria: true } } } },
-        candidate: true,
-        turns: { orderBy: { index: 'asc' } },
-        scoreCard: true,
-        report: true,
-      },
-    });
+    const full = await repo.findWithRelations(id);
     return full;
   });
 
-  // ─── Start Session (set WAITING, create room) ──────────
+  // ─── Start Session (transition WAITING → IN_PROGRESS) ──
   app.post('/interviews/:id/start', { onRequest: [app.authenticate] }, async (req, reply) => {
     const payload = req.user as { sub: string; role: string };
     const { id } = req.params as { id: string };
@@ -121,19 +141,23 @@ export async function interviewRoutes(app: FastifyInstance) {
     if (!session) return reply.status(404).send({ error: 'Not found' });
     if (!allowed) return reply.status(403).send({ error: 'Forbidden' });
 
-    if (session.phase !== 'CREATED') {
-      return reply.status(400).send({ error: 'Session cannot be started from current phase' });
-    }
-
+    // Ensure LiveKit room exists
     await ensureRoom(session.livekitRoom);
 
-    const updated = await prisma.interviewSession.update({
-      where: { id },
-      data: { phase: 'WAITING', startedAt: new Date() },
-    });
+    // Transition to WAITING first if CREATED
+    let updatedSession = session;
+    if (session.phase === PrismaInterviewPhase.CREATED) {
+      updatedSession = await repo.updatePhase(id, InterviewPhase.WAITING, payload.sub);
+    }
 
-    await logAudit('START_SESSION', 'InterviewSession', id, payload.sub);
-    return updated;
+    if (updatedSession.phase !== PrismaInterviewPhase.WAITING) {
+      return reply.status(400).send({
+        error: `Session cannot be started from ${updatedSession.phase} phase. Must be in WAITING phase.`
+      });
+    }
+
+    const finalSession = await repo.start(id, payload.sub);
+    return finalSession;
   });
 
   // ─── Finish / Complete Session ─────────────────────────
@@ -145,18 +169,47 @@ export async function interviewRoutes(app: FastifyInstance) {
     if (!session) return reply.status(404).send({ error: 'Not found' });
     if (!allowed) return reply.status(403).send({ error: 'Forbidden' });
 
-    if (session.phase === 'COMPLETED' || session.phase === 'CANCELLED') {
-      return reply.status(400).send({ error: 'Session already ended' });
+    if (session.phase !== 'IN_PROGRESS') {
+      return reply.status(400).send({ 
+        error: `Session cannot be finished from ${session.phase} phase. Must be in IN_PROGRESS phase.` 
+      });
     }
 
-    const updated = await prisma.interviewSession.update({
-      where: { id },
-      data: { phase: 'COMPLETED', endedAt: new Date() },
-    });
+    const updated = await repo.complete(id, payload.sub);
 
+    // Queue evaluation job
     await evaluationQueue.add('evaluate', { sessionId: id }, { jobId: `eval_${id}` });
 
-    await logAudit('FINISH_SESSION', 'InterviewSession', id, payload.sub);
+    return updated;
+  });
+
+  // ─── Cancel Session ────────────────────────────────────
+  app.post('/interviews/:id/cancel', { onRequest: [app.authenticate] }, async (req, reply) => {
+    const payload = req.user as { sub: string; role: string };
+    const { id } = req.params as { id: string };
+
+    const { allowed, session } = await authorizeSession(id, payload.sub, payload.role);
+    if (!session) return reply.status(404).send({ error: 'Not found' });
+    if (!allowed) return reply.status(403).send({ error: 'Forbidden' });
+
+    const updated = await repo.cancel(id, payload.sub);
+    return updated;
+  });
+
+  // ─── Mark No-Show ──────────────────────────────────────
+  app.post('/interviews/:id/no-show', { onRequest: [app.authenticate] }, async (req, reply) => {
+    const payload = req.user as { sub: string; role: string };
+    const { id } = req.params as { id: string };
+
+    const { allowed, session } = await authorizeSession(id, payload.sub, payload.role);
+    if (!session) return reply.status(404).send({ error: 'Not found' });
+    if (!allowed) return reply.status(403).send({ error: 'Forbidden' });
+
+    if (session.phase !== 'WAITING') {
+      return reply.status(400).send({ error: 'Can only mark no-show for WAITING sessions' });
+    }
+
+    const updated = await repo.markNoShow(id, payload.sub);
     return updated;
   });
 
@@ -173,7 +226,6 @@ export async function interviewRoutes(app: FastifyInstance) {
       where: { sessionId: id },
       orderBy: { index: 'asc' },
     });
-    if (turns.length === 0) return reply.status(404).send({ error: 'No transcript' });
     return turns;
   });
 
@@ -186,7 +238,10 @@ export async function interviewRoutes(app: FastifyInstance) {
     if (!session) return reply.status(404).send({ error: 'Not found' });
     if (!allowed) return reply.status(403).send({ error: 'Forbidden' });
 
-    const scoreCard = await prisma.scoreCard.findUnique({ where: { sessionId: id } });
+    const scoreCard = await prisma.scoreCard.findUnique({ 
+      where: { sessionId: id },
+      include: { criteria: { orderBy: { order: 'asc' } } },
+    });
     if (!scoreCard) return reply.status(404).send({ error: 'Not yet evaluated' });
     return scoreCard;
   });
@@ -202,7 +257,7 @@ export async function interviewRoutes(app: FastifyInstance) {
 
     const report = await prisma.report.findUnique({
       where: { sessionId: id },
-      include: { scoreCard: true },
+      include: { scoreCard: { include: { criteria: true } } },
     });
     if (!report) return reply.status(404).send({ error: 'Report not ready' });
     return report;
@@ -219,7 +274,9 @@ export async function interviewRoutes(app: FastifyInstance) {
       recruiter: 'RECRUITER',
     };
     if (roleMap[body.role] && roleMap[body.role] !== payload.role) {
-      return reply.status(403).send({ error: 'Role mismatch: requested role does not match your account' });
+      return reply.status(403).send({ 
+        error: 'Role mismatch: requested role does not match your account' 
+      });
     }
 
     // Verify session access
@@ -262,22 +319,179 @@ export async function interviewRoutes(app: FastifyInstance) {
     return { token, room: session.livekitRoom, identity };
   });
 
-  // ─── LiveKit Webhook (rate limited: 30/min) ─────────────
-  app.post(
-    '/webhooks/livekit',
-    { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } },
-    async (req, reply) => {
-      // Verify webhook signature if LIVEKIT_API_KEY and LIVEKIT_API_SECRET are available
-      const authHeader = req.headers.authorization;
-      if (!authHeader) {
-        return reply.status(401).send({ error: 'Missing authorization header' });
-      }
+  // ─── Reschedule Interview ──────────────────────────────
+  app.patch('/interviews/:id/reschedule', { onRequest: [app.authenticate] }, async (req, reply) => {
+    const payload = req.user as { sub: string; role: string };
+    const { id } = req.params as { id: string };
+    const { scheduledAt } = req.body as { scheduledAt: string };
 
-      // In production, verify with livekit-server-sdk WebhookReceiver
-      // For now, check that the auth header exists (basic check)
-      const event = req.body as Record<string, unknown>;
-      await logAudit('LIVEKIT_EVENT', 'LiveKit', undefined, undefined, event);
-      return reply.status(200).send({ ok: true });
-    },
-  );
+    const { allowed, session } = await authorizeSession(id, payload.sub, payload.role);
+    if (!session) return reply.status(404).send({ error: 'Not found' });
+    if (!allowed) return reply.status(403).send({ error: 'Forbidden' });
+
+    if (session.phase !== 'CREATED' && session.phase !== 'SCHEDULED') {
+      return reply.status(400).send({ error: 'Can only reschedule CREATED or SCHEDULED sessions' });
+    }
+
+    const updated = await prisma.interviewSession.update({
+      where: { id },
+      data: {
+        scheduledAt: new Date(scheduledAt),
+        phase: 'SCHEDULED',
+      },
+    });
+
+    await logAudit('RESCHEDULE', 'InterviewSession', id, payload.sub, {
+      scheduledAt,
+    });
+
+    return updated;
+  });
+
+  // ─── Send Invite Email (RECRUITER/ADMIN) ────────────────
+  app.post('/interviews/:id/send-invite', { onRequest: [app.authenticate] }, async (req, reply) => {
+    const payload = req.user as { sub: string; role: string };
+    const { id } = req.params as { id: string };
+
+    if (payload.role === 'CANDIDATE') {
+      return reply.status(403).send({ error: 'Forbidden' });
+    }
+
+    const { allowed, session } = await authorizeSession(id, payload.sub, payload.role);
+    if (!session) return reply.status(404).send({ error: 'Not found' });
+    if (!allowed) return reply.status(403).send({ error: 'Forbidden' });
+
+    const terminalPhases = ['COMPLETED', 'CANCELLED', 'NO_SHOW'];
+    if (terminalPhases.includes(session.phase)) {
+      return reply.status(400).send({ error: `Cannot send invite for ${session.phase} session` });
+    }
+
+    // Load full session with relations
+    const fullSession = await prisma.interviewSession.findUnique({
+      where: { id },
+      include: {
+        scenario: true,
+        candidate: true,
+      },
+    });
+    if (!fullSession || !fullSession.candidate) {
+      return reply.status(404).send({ error: 'Session or candidate not found' });
+    }
+
+    // Generate invite token (or reuse existing one)
+    const inviteToken = fullSession.inviteToken || crypto.randomUUID();
+    const env = loadEnv();
+    const interviewUrl = `${env.APP_URL}/interview/join/${inviteToken}`;
+
+    // Update session with invite token and sent timestamp
+    await prisma.interviewSession.update({
+      where: { id },
+      data: {
+        inviteToken,
+        inviteSentAt: new Date(),
+      },
+    });
+
+    // Send the email
+    await sendInterviewInvite({
+      candidateEmail: fullSession.candidate.email,
+      candidateName: fullSession.candidate.fullName,
+      interviewUrl,
+      scenarioTitle: fullSession.scenario.title,
+      position: fullSession.scenario.position,
+      scheduledAt: fullSession.scheduledAt,
+    });
+
+    await logAudit('CREATE', 'InviteEmail', id, payload.sub, {
+      candidateEmail: fullSession.candidate.email,
+      inviteToken,
+    });
+
+    return { ok: true, inviteUrl: interviewUrl };
+  });
+
+  // ─── Public: Get Interview by Invite Token ──────────────
+  app.get('/interviews/invite/:token', async (req, reply) => {
+    const { token } = req.params as { token: string };
+
+    const session = await prisma.interviewSession.findUnique({
+      where: { inviteToken: token },
+      include: {
+        scenario: { select: { title: true, position: true, level: true, durationMinutes: true, description: true } },
+        candidate: { select: { fullName: true, email: true } },
+      },
+    });
+
+    if (!session || session.deletedAt) {
+      return reply.status(404).send({ error: 'Interview not found or link is invalid' });
+    }
+
+    return {
+      id: session.id,
+      phase: session.phase,
+      scheduledAt: session.scheduledAt,
+      inviteSentAt: session.inviteSentAt,
+      scenario: session.scenario,
+      candidate: session.candidate,
+      livekitRoom: session.livekitRoom,
+    };
+  });
+
+  // ─── Public: Join Interview via Invite Token ─────────────
+  app.post('/interviews/invite/:token/join', async (req, reply) => {
+    const { token } = req.params as { token: string };
+
+    const session = await prisma.interviewSession.findUnique({
+      where: { inviteToken: token },
+      include: {
+        candidate: { select: { id: true, fullName: true } },
+        scenario: { select: { title: true, position: true } },
+      },
+    });
+
+    if (!session || session.deletedAt) {
+      return reply.status(404).send({ error: 'Interview not found or link is invalid' });
+    }
+
+    const terminalPhases = ['COMPLETED', 'CANCELLED', 'NO_SHOW'];
+    if (terminalPhases.includes(session.phase)) {
+      return reply.status(400).send({ error: `This interview is ${session.phase.toLowerCase().replace('_', ' ')}` });
+    }
+
+    // Ensure LiveKit room exists
+    await ensureRoom(session.livekitRoom);
+
+    // Transition to WAITING if still CREATED or SCHEDULED
+    if (session.phase === 'CREATED' || session.phase === 'SCHEDULED') {
+      await repo.updatePhase(session.id, InterviewPhase.WAITING, 'invite-link');
+    }
+
+    // Mint LiveKit token for the candidate
+    const identity = `candidate_${session.candidateId}`;
+    const livekitToken = await mintLiveKitToken({
+      roomName: session.livekitRoom,
+      identity,
+      canPublish: true,
+      canSubscribe: true,
+      canPublishData: true,
+    });
+
+    await logAudit('MINT_TOKEN', 'LiveKit', session.id, undefined, {
+      role: 'candidate',
+      room: session.livekitRoom,
+      via: 'invite-link',
+    });
+
+    return {
+      livekitToken,
+      room: session.livekitRoom,
+      identity,
+      interview: {
+        id: session.id,
+        phase: 'WAITING',
+        scenario: session.scenario,
+        candidate: session.candidate,
+      },
+    };
+  });
 }

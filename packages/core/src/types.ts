@@ -1,8 +1,31 @@
+// ─── Base Entity Types ───────────────────────────────────
+export interface BaseEntity {
+  id: string;
+  createdAt: Date;
+  updatedAt: Date;
+  deletedAt?: Date | null;
+  version: number;
+}
+
+export interface AuditableEntity extends BaseEntity {
+  createdById: string;
+  updatedById?: string | null;
+}
+
 // ─── Role & Auth ─────────────────────────────────────────
 export enum UserRole {
   ADMIN = 'ADMIN',
   RECRUITER = 'RECRUITER',
   CANDIDATE = 'CANDIDATE',
+}
+
+export enum InterviewLevel {
+  INTERN = 'INTERN',
+  JUNIOR = 'JUNIOR',
+  MID = 'MID',
+  SENIOR = 'SENIOR',
+  STAFF = 'STAFF',
+  PRINCIPAL = 'PRINCIPAL',
 }
 
 export interface JwtPayload {
@@ -13,134 +36,227 @@ export interface JwtPayload {
   exp?: number;
 }
 
-// ─── Interview Domain ────────────────────────────────────
-export enum InterviewPhase {
-  CREATED = 'CREATED',
-  WAITING = 'WAITING', // room created, waiting for candidate
-  INTRO = 'INTRO',
-  QUESTIONING = 'QUESTIONING',
-  WRAP_UP = 'WRAP_UP',
-  COMPLETED = 'COMPLETED',
-  CANCELLED = 'CANCELLED',
+// ─── User Profiles ───────────────────────────────────────
+export interface User extends BaseEntity {
+  email: string;
+  passwordHash: string;
+  role: UserRole;
+  isActive: boolean;
+  lastLoginAt?: Date | null;
+  candidateProfile?: CandidateProfile | null;
+  recruiterProfile?: RecruiterProfile | null;
 }
 
-export enum SpeakingParty {
-  CANDIDATE = 'CANDIDATE',
-  AI = 'AI',
-  NONE = 'NONE',
-}
-
-export interface CandidateProfile {
-  id: string;
+export interface CandidateProfile extends BaseEntity {
   userId: string;
   fullName: string;
   email: string;
-  phone?: string;
-  resumeUrl?: string;
-  resumeText?: string;
+  phone?: string | null;
+  resumeUrl?: string | null;
+  resumeText?: string | null;
   skills: string[];
   experienceYears: number;
-  createdAt: Date;
+  headline?: string | null;
+  location?: string | null;
+  linkedinUrl?: string | null;
+  githubUrl?: string | null;
+  user?: User;
 }
 
-export interface Scenario {
-  id: string;
+export interface RecruiterProfile extends BaseEntity {
+  userId: string;
+  fullName: string;
+  email: string;
+  title?: string | null;
+  department?: string | null;
+  phone?: string | null;
+  companyInfo?: Record<string, unknown> | null;
+  preferences?: Record<string, unknown> | null;
+  user?: User;
+}
+
+// ─── Interview Domain ────────────────────────────────────
+export enum InterviewPhase {
+  CREATED = 'CREATED',
+  SCHEDULED = 'SCHEDULED',
+  WAITING = 'WAITING',
+  IN_PROGRESS = 'IN_PROGRESS',
+  COMPLETED = 'COMPLETED',
+  CANCELLED = 'CANCELLED',
+  NO_SHOW = 'NO_SHOW',
+}
+
+export enum SpeakerRole {
+  AI = 'AI',
+  CANDIDATE = 'CANDIDATE',
+}
+
+export enum Recommendation {
+  STRONG_NO = 'STRONG_NO',
+  NO = 'NO',
+  MAYBE = 'MAYBE',
+  YES = 'YES',
+  STRONG_YES = 'STRONG_YES',
+}
+
+export interface PhaseTransition {
+  phase: InterviewPhase;
+  timestamp: Date;
+}
+
+export interface Scenario extends AuditableEntity {
+  version: number;
   title: string;
   description: string;
-  position: string; // e.g. "Backend Engineer"
-  level: string; // e.g. "Mid-level"
-  domain: string; // e.g. "Software Engineering"
+  position: string;
+  level: InterviewLevel;
+  domain: string;
   topics: string[];
   questionCount: number;
   durationMinutes: number;
-  createdById: string;
-  createdAt: Date;
+  isPublished: boolean;
+  isTemplate: boolean;
+  createdBy?: User;
+  rubrics?: Rubric[];
+  sessions?: InterviewSession[];
 }
 
-export interface RubricCriterion {
-  id: string;
+export interface Rubric extends BaseEntity {
+  version: number;
+  scenarioId: string;
+  title: string;
+  description?: string | null;
+  scenario?: Scenario;
+  criteria?: RubricCriterion[];
+  sessions?: InterviewSession[];
+}
+
+export interface RubricCriterion extends BaseEntity {
   rubricId: string;
-  name: string; // e.g. "Technical Depth"
+  name: string;
   description: string;
   maxScore: number;
-  weight: number; // 0-1
+  weight: number;
+  order: number;
+  rubric?: Rubric;
 }
 
-export interface Rubric {
-  id: string;
-  scenarioId: string;
-  criteria: RubricCriterion[];
-  createdAt: Date;
-}
-
-export interface InterviewSession {
-  id: string;
+export interface InterviewSession extends BaseEntity {
   scenarioId: string;
   rubricId: string;
   candidateId: string;
   recruiterId: string;
-  livekitRoom: string; // "interview_<sessionId>"
+  livekitRoom: string;
   phase: InterviewPhase;
-  startedAt?: Date;
-  endedAt?: Date;
-  createdAt: Date;
+  phaseHistory: PhaseTransition[];
+  scheduledAt?: Date | null;
+  startedAt?: Date | null;
+  endedAt?: Date | null;
+  completedAt?: Date | null;
+  metadata: Record<string, unknown> | null;
+  scenario?: Scenario;
+  rubric?: Rubric;
+  candidate?: CandidateProfile;
+  recruiter?: User;
+  turns?: Turn[];
+  scoreCard?: ScoreCard | null;
+  report?: Report | null;
 }
 
-export interface Turn {
-  id: string;
+export interface Turn extends BaseEntity {
   sessionId: string;
   index: number;
-  speakerRole: 'AI' | 'CANDIDATE';
+  speakerRole: SpeakerRole;
   transcript: string;
-  audioUrl?: string;
-  sttLatencyMs?: number;
-  llmTtftMs?: number;
-  ttsFirstAudioMs?: number;
-  e2eLatencyMs?: number;
+  audioUrl?: string | null;
+  sttLatencyMs?: number | null;
+  llmTtftMs?: number | null;
+  ttsFirstAudioMs?: number | null;
+  e2eLatencyMs?: number | null;
+  tokensUsed?: number | null;
   startedAt: Date;
-  endedAt?: Date;
+  endedAt?: Date | null;
+  session?: InterviewSession;
 }
 
-export interface CriterionScore {
-  criterionId: string;
-  criterionName: string;
-  score: number;
-  maxScore: number;
-  evidence: string; // quote from transcript
-  reasoning: string;
-}
-
-export interface ScoreCard {
-  id: string;
+// ─── Evaluation Domain ───────────────────────────────────
+export interface ScoreCard extends BaseEntity {
   sessionId: string;
   overallScore: number;
   maxPossibleScore: number;
-  criterionScores: CriterionScore[];
-  strengths: string[];
-  weaknesses: string[];
-  recommendation: 'STRONG_YES' | 'YES' | 'MAYBE' | 'NO' | 'STRONG_NO';
+  normalizedScore: number;
+  recommendation: Recommendation;
+  evaluatedBy?: string | null;
   evaluatedAt: Date;
+  session?: InterviewSession;
+  criteria?: ScoreCardCriterion[];
+  report?: Report | null;
 }
 
-export interface Report {
-  id: string;
+export interface ScoreCardCriterion extends BaseEntity {
+  scoreCardId: string;
+  name: string;
+  description: string;
+  score: number;
+  maxScore: number;
+  weight: number;
+  evidence: string;
+  reasoning: string;
+  order: number;
+  scoreCard?: ScoreCard;
+}
+
+export interface Report extends BaseEntity {
   sessionId: string;
   scoreCardId: string;
-  pdfUrl?: string;
+  pdfUrl?: string | null;
+  summary?: string | null;
+  metadata?: Record<string, unknown> | null;
   generatedAt: Date;
+  session?: InterviewSession;
+  scoreCard?: ScoreCard;
 }
 
-export interface ModelConfig {
-  id: string;
+// ─── Model Configuration ─────────────────────────────────
+export interface ModelConfig extends BaseEntity {
   name: string;
   sttProvider: string;
-  sttModel?: string;
+  sttModel?: string | null;
   llmProvider: string;
   llmModel: string;
   ttsProvider: string;
-  ttsVoice?: string;
+  ttsVoice?: string | null;
   embeddingProvider: string;
   embeddingModel: string;
   isDefault: boolean;
-  createdAt: Date;
+  isActive: boolean;
+  config?: Record<string, unknown> | null;
 }
+
+// ─── Audit Log ───────────────────────────────────────────
+export enum AuditAction {
+  CREATE = 'CREATE',
+  UPDATE = 'UPDATE',
+  DELETE = 'DELETE',
+  LOGIN = 'LOGIN',
+  LOGOUT = 'LOGOUT',
+  PHASE_CHANGE = 'PHASE_CHANGE',
+  EVALUATION = 'EVALUATION',
+  REPORT_GENERATED = 'REPORT_GENERATED',
+}
+
+export interface AuditLog extends BaseEntity {
+  userId?: string | null;
+  action: AuditAction;
+  entity: string;
+  entityId?: string | null;
+  oldData?: Record<string, unknown> | null;
+  newData?: Record<string, unknown> | null;
+  metadata?: Record<string, unknown> | null;
+  ipAddress?: string | null;
+  userAgent?: string | null;
+}
+
+// ─── Legacy Type Aliases (for backward compatibility) ───
+/** @deprecated Use SpeakerRole instead */
+export type SpeakingParty = SpeakerRole;

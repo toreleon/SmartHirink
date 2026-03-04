@@ -49,7 +49,7 @@ async function main() {
 
   // ─── Plugins ──────────────────────────────────────────
   await app.register(cors, {
-    origin: [env.APP_URL, 'http://localhost:3000'],
+    origin: [env.APP_URL, 'http://localhost:3000', 'https://turned-notebooks-walks-vsnet.trycloudflare.com'],
     credentials: true,
   });
 
@@ -58,7 +58,7 @@ async function main() {
   });
 
   await app.register(rateLimit, {
-    max: 100,
+    max: 500,
     timeWindow: '1 minute',
   });
 

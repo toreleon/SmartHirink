@@ -207,14 +207,9 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
                 </Sheet>
               </>
             ) : (
-              <div className="flex items-center gap-2">
-                <Button variant="ghost" size="sm" asChild>
-                  <Link href="/login">Sign in</Link>
-                </Button>
-                <Button size="sm" asChild>
-                  <Link href="/register">Get started</Link>
-                </Button>
-              </div>
+              <Button variant="ghost" size="sm" asChild>
+                <Link href="/login">Sign in</Link>
+              </Button>
             )}
           </div>
         </div>

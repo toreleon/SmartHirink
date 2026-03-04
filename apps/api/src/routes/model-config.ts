@@ -1,8 +1,15 @@
 import type { FastifyInstance } from 'fastify';
-import { ModelConfigCreateSchema } from '@smarthirink/core';
+import { ModelConfigCreateSchema, ModelConfigUpdateSchema } from '@smarthirink/core';
 import prisma from '../lib/prisma.js';
 
 export async function modelConfigRoutes(app: FastifyInstance) {
+  // Helper to sanitize config for Prisma JSON
+  function sanitizeConfig(config: Record<string, unknown> | null | undefined) {
+    if (!config) return null;
+    // Convert to plain JSON-serializable object
+    return JSON.parse(JSON.stringify(config));
+  }
+
   // ─── List Model Configs ─────────────────────────────────
   app.get('/model-configs', { onRequest: [app.authenticate] }, async () => {
     return prisma.modelConfig.findMany({ orderBy: { createdAt: 'desc' } });
@@ -23,7 +30,12 @@ export async function modelConfigRoutes(app: FastifyInstance) {
     }
 
     const body = ModelConfigCreateSchema.parse(req.body);
-    const config = await prisma.modelConfig.create({ data: body });
+    const config = await prisma.modelConfig.create({
+      data: {
+        ...body,
+        config: sanitizeConfig(body.config),
+      },
+    });
     return reply.status(201).send(config);
   });
 
@@ -35,14 +47,20 @@ export async function modelConfigRoutes(app: FastifyInstance) {
     }
 
     const { id } = req.params as { id: string };
-    const body = ModelConfigCreateSchema.partial().parse(req.body);
+    const body = ModelConfigUpdateSchema.parse(req.body);
 
     // If setting as default, unset others
     if (body.isDefault) {
       await prisma.modelConfig.updateMany({ data: { isDefault: false } });
     }
 
-    const config = await prisma.modelConfig.update({ where: { id }, data: body });
+    const config = await prisma.modelConfig.update({
+      where: { id },
+      data: {
+        ...body,
+        config: body.config !== undefined ? sanitizeConfig(body.config) : undefined,
+      },
+    });
     return config;
   });
 }

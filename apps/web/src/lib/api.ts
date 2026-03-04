@@ -206,6 +206,33 @@ class ApiClient {
     return this.request<any>('/candidates/profile', { method: 'POST', body: JSON.stringify(data) });
   }
 
+  // ─── Invite (public, no auth) ─────────────────────────
+  async getInviteInterview(token: string) {
+    const url = API_URL ? `${API_URL}/api/interviews/invite/${token}` : `/api/interviews/invite/${token}`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(error.error || `API Error: ${res.status}`);
+    }
+    return res.json();
+  }
+
+  async joinInviteInterview(token: string) {
+    const url = API_URL ? `${API_URL}/api/interviews/invite/${token}/join` : `/api/interviews/invite/${token}/join`;
+    const res = await fetch(url, { method: 'POST' });
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(error.error || `API Error: ${res.status}`);
+    }
+    return res.json() as Promise<{ livekitToken: string; room: string; identity: string; interview: any }>;
+  }
+
+  async sendInvite(interviewId: string) {
+    return this.request<{ ok: boolean; inviteUrl: string }>(`/interviews/${interviewId}/send-invite`, {
+      method: 'POST',
+    });
+  }
+
   // ─── Rubrics ───────────────────────────────────────────
   async createRubric(scenarioId: string, data: { criteria: any[] }) {
     return this.request<any>('/rubrics', {

@@ -18,7 +18,7 @@ import pino from 'pino';
 import { randomUUID } from 'crypto';
 import {
   InterviewPhase,
-  SpeakingParty,
+  SpeakerRole,
   buildOrchestratorSystemPrompt,
   buildOrchestratorUserMessage,
   buildIntroMessage,
@@ -348,7 +348,7 @@ export class InterviewAgent {
       });
 
       // Update state: AI thinking
-      this.sendStateMessage(SpeakingParty.AI);
+      this.sendStateMessage(SpeakerRole.AI);
 
       // --- RAG Context (non-blocking fetch) ---
       let ragContext = '';
@@ -437,13 +437,13 @@ export class InterviewAgent {
 
       // Check if we should wrap up
       if (this.currentQuestionIndex >= this.session.questionCount) {
-        this.setPhase(InterviewPhase.WRAP_UP);
+        this.setPhase(InterviewPhase.IN_PROGRESS);
         const outro = buildOutroMessage(this.session.candidateName);
         await this.speakText(outro);
         this.turns.push({ role: 'AI', text: outro });
         await this.endSession();
       } else {
-        this.sendStateMessage(SpeakingParty.NONE);
+        this.sendStateMessage(SpeakerRole.AI);
       }
     } catch (err) {
       logger.error({ err }, 'Error processing utterance');
@@ -462,7 +462,7 @@ export class InterviewAgent {
       });
 
       // Signal candidate can speak again
-      this.sendStateMessage(SpeakingParty.NONE);
+      this.sendStateMessage(SpeakerRole.AI);
     } finally {
       this.isProcessing = false;
 
@@ -543,7 +543,7 @@ export class InterviewAgent {
 
   /** Start the interview with an intro message. */
   private async startInterview(): Promise<void> {
-    this.setPhase(InterviewPhase.INTRO);
+    this.setPhase(InterviewPhase.IN_PROGRESS);
 
     const intro = buildIntroMessage(this.session.candidateName, this.session.position);
     await this.speakText(intro);
@@ -556,7 +556,7 @@ export class InterviewAgent {
       latency: {},
     });
 
-    this.setPhase(InterviewPhase.QUESTIONING);
+    this.setPhase(InterviewPhase.IN_PROGRESS);
   }
 
   /** End the interview session. */
@@ -592,7 +592,7 @@ export class InterviewAgent {
           break;
         case 'ping':
           this.sendStateMessage(
-            this.isProcessing ? SpeakingParty.AI : SpeakingParty.NONE,
+            this.isProcessing ? SpeakerRole.AI : SpeakerRole.AI,
           );
           break;
       }
@@ -610,7 +610,7 @@ export class InterviewAgent {
   }
 
   /** Send state update. */
-  private sendStateMessage(speaking: SpeakingParty): void {
+  private sendStateMessage(speaking: SpeakerRole): void {
     this.sendDataMessage({
       type: 'state',
       phase: this.phase,
@@ -624,7 +624,7 @@ export class InterviewAgent {
   private setPhase(phase: InterviewPhase): void {
     this.phase = phase;
     this.onPhaseChange?.(phase);
-    this.sendStateMessage(SpeakingParty.NONE);
+    this.sendStateMessage(SpeakerRole.AI);
     logger.info({ phase }, 'Phase changed');
   }
 
