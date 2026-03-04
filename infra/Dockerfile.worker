@@ -15,7 +15,7 @@ COPY packages/ ./packages/
 COPY apps/worker/ ./apps/worker/
 COPY apps/api/prisma/ ./apps/api/prisma/
 RUN npm run build --workspace=packages/core && \
-    npx prisma generate --schema=apps/api/prisma/schema.prisma && \
+    npx prisma generate --schema=apps/api/prisma/schema.prisma --generator client && \
     npm run build --workspace=apps/worker
 
 FROM node:20-alpine

@@ -5,6 +5,7 @@ import rateLimit from '@fastify/rate-limit';
 import helmet from '@fastify/helmet';
 import cookie from '@fastify/cookie';
 import fastifyStatic from '@fastify/static';
+import multipart from '@fastify/multipart';
 import { randomUUID } from 'crypto';
 import * as path from 'path';
 import { loadEnv } from './config.js';
@@ -43,7 +44,7 @@ async function main() {
           ? { target: 'pino-pretty', options: { colorize: true } }
           : undefined,
     },
-    bodyLimit: 1_048_576, // 1 MB
+    bodyLimit: 5_242_880, // 5 MB (for CV/JD uploads)
     genReqId: () => randomUUID(),
   });
 
@@ -63,6 +64,10 @@ async function main() {
   });
 
   await app.register(cookie);
+
+  await app.register(multipart, {
+    limits: { fileSize: 5_242_880 }, // 5 MB
+  });
 
   await app.register(jwt, { secret: env.JWT_SECRET });
 

@@ -1,6 +1,8 @@
 // ─── Prompt Templates ────────────────────────────────────
 // All prompts are functions that return the system/user message string.
-// Vietnamese-first persona with English technical terms preserved.
+// Supports English ('en') and Vietnamese ('vi') interviews.
+
+export type InterviewLanguage = 'en' | 'vi';
 
 export interface OrchestratorPromptContext {
   position: string;
@@ -13,9 +15,48 @@ export interface OrchestratorPromptContext {
   previousTurns: Array<{ role: 'AI' | 'CANDIDATE'; text: string }>;
   currentQuestionIndex: number;
   retrievedContext?: string; // RAG context snippets
+  language: InterviewLanguage;
 }
 
 export function buildOrchestratorSystemPrompt(ctx: OrchestratorPromptContext): string {
+  if (ctx.language === 'vi') {
+    return buildOrchestratorSystemPromptVi(ctx);
+  }
+  return buildOrchestratorSystemPromptEn(ctx);
+}
+
+function buildOrchestratorSystemPromptEn(ctx: OrchestratorPromptContext): string {
+  return `You are a professional AI interviewer named "Minh" from the SmartHirink platform.
+You are interviewing for the "${ctx.position}" position (${ctx.level}) in the ${ctx.domain} domain.
+
+### MANDATORY RULES ###
+1. Speak in English. Keep technical terms as-is (e.g., Deploy, Microservices, CI/CD, API, Docker, Kubernetes, REST, GraphQL).
+2. Ask only ONE question per turn. Never ask multiple questions at once.
+3. Questions must be adaptive — build on previous answers to probe deeper or shift topics.
+4. Do NOT repeat questions that have already been asked.
+5. Keep responses concise, professional, and natural — like a real interview.
+6. Show active listening: briefly acknowledge before asking the next question (e.g., "Thank you. Moving on…").
+7. If the candidate gives a short or vague answer, ask a follow-up to clarify.
+8. If the candidate doesn't know, acknowledge it and move to another topic.
+9. Target question count: ${ctx.questionCount}. Currently on question ${ctx.currentQuestionIndex + 1}.
+10. When all questions are done, wrap up and thank the candidate.
+11. Do NOT reveal scores or evaluations during the interview.
+12. Do NOT use markdown, emoji, or special characters — you are speaking aloud, not writing.
+
+### CANDIDATE INFO ###
+Name: ${ctx.candidateName}
+${ctx.candidateSummary}
+
+### TOPICS TO ASSESS ###
+${ctx.topics.map((t, i) => `${i + 1}. ${t}`).join('\n')}
+
+${ctx.retrievedContext ? `### SUPPLEMENTARY CONTEXT (RAG) ###\n${ctx.retrievedContext}` : ''}
+
+### CONVERSATION ###
+Respond DIRECTLY as if speaking — do not start with "Assistant:" or any prefix.`;
+}
+
+function buildOrchestratorSystemPromptVi(ctx: OrchestratorPromptContext): string {
   return `Bạn là một AI phỏng vấn viên chuyên nghiệp tên là "Minh" thuộc nền tảng SmartHirink.
 Bạn đang phỏng vấn cho vị trí "${ctx.position}" (${ctx.level}) trong lĩnh vực ${ctx.domain}.
 
@@ -49,18 +90,31 @@ Hãy phản hồi TRỰC TIẾP như đang nói — không mở đầu bằng "A
 export function buildOrchestratorUserMessage(
   turns: Array<{ role: 'AI' | 'CANDIDATE'; text: string }>,
   latestCandidateText: string,
+  language: InterviewLanguage = 'en',
 ): string {
-  // We pass the conversation history + latest candidate response.
-  const historyBlock = turns
-    .map((t) => `[${t.role === 'AI' ? 'Phỏng vấn viên' : 'Ứng viên'}]: ${t.text}`)
-    .join('\n');
+  if (language === 'vi') {
+    const historyBlock = turns
+      .map((t) => `[${t.role === 'AI' ? 'Phỏng vấn viên' : 'Ứng viên'}]: ${t.text}`)
+      .join('\n');
 
-  return `### LỊCH SỬ HỘI THOẠI ###
+    return `### LỊCH SỬ HỘI THOẠI ###
 ${historyBlock}
 
 [Ứng viên]: ${latestCandidateText}
 
 Hãy tiếp tục phỏng vấn.`;
+  }
+
+  const historyBlock = turns
+    .map((t) => `[${t.role === 'AI' ? 'Interviewer' : 'Candidate'}]: ${t.text}`)
+    .join('\n');
+
+  return `### CONVERSATION HISTORY ###
+${historyBlock}
+
+[Candidate]: ${latestCandidateText}
+
+Continue the interview.`;
 }
 
 // ─── Evaluator Prompt ────────────────────────────────────
@@ -82,7 +136,7 @@ export function buildEvaluatorPrompt(ctx: EvaluatorPromptContext): string {
   const criteriaBlock = ctx.rubricCriteria
     .map(
       (c, i) =>
-        `${i + 1}. **${c.name}** (max ${c.maxScore} điểm, weight ${(c.weight * 100).toFixed(0)}%): ${c.description}`,
+        `${i + 1}. **${c.name}** (max ${c.maxScore} points, weight ${(c.weight * 100).toFixed(0)}%): ${c.description}`,
     )
     .join('\n');
 
@@ -134,16 +188,44 @@ Respond ONLY with the JSON object.`;
 }
 
 // ─── Intro / Outro Messages ──────────────────────────────
-export function buildIntroMessage(candidateName: string, position: string): string {
-  return `Xin chào ${candidateName}, tôi là Minh — phỏng vấn viên AI của SmartHirink. ` +
-    `Hôm nay chúng ta sẽ trao đổi về vị trí ${position}. ` +
-    `Xin lưu ý: cuộc phỏng vấn này được thực hiện bởi AI và được ghi âm để đánh giá. ` +
-    `Kết quả chỉ mang tính chất tham khảo, quyết định cuối cùng sẽ do nhà tuyển dụng đưa ra. ` +
-    `Bạn đã sẵn sàng chưa?`;
+export function buildIntroMessage(candidateName: string, position: string, language: InterviewLanguage = 'en'): string {
+  if (language === 'vi') {
+    return `Xin chào ${candidateName}, tôi là Minh, phỏng vấn viên của SmartHirink. ` +
+      `Hôm nay chúng ta sẽ trao đổi về vị trí ${position}. ` +
+      `Cuộc phỏng vấn này được ghi âm để đánh giá. ` +
+      `Bạn đã sẵn sàng chưa?`;
+  }
+  return `Hello ${candidateName}, I'm Minh, an interviewer from SmartHirink. ` +
+    `Today we'll be discussing the ${position} role. ` +
+    `This interview is recorded for evaluation purposes. ` +
+    `Are you ready to begin?`;
 }
 
-export function buildOutroMessage(candidateName: string): string {
-  return `Cảm ơn ${candidateName} rất nhiều vì đã dành thời gian tham gia phỏng vấn hôm nay. ` +
-    `Kết quả đánh giá sẽ được gửi đến nhà tuyển dụng để xem xét. ` +
-    `Chúc bạn một ngày tốt lành!`;
+/** Split intro into short sentences suitable for TTS (avoids model confusion on long text). */
+export function buildIntroSentences(candidateName: string, position: string, language: InterviewLanguage = 'en'): string[] {
+  if (language === 'vi') {
+    return [
+      `Xin chào ${candidateName}, tôi là Minh, phỏng vấn viên của SmartHirink.`,
+      `Hôm nay chúng ta sẽ trao đổi về vị trí ${position}.`,
+      `Cuộc phỏng vấn này được ghi âm để đánh giá.`,
+      `Bạn đã sẵn sàng chưa?`,
+    ];
+  }
+  return [
+    `Hello ${candidateName}, I'm Minh, an interviewer from SmartHirink.`,
+    `Today we'll be discussing the ${position} role.`,
+    `This interview is recorded for evaluation purposes.`,
+    `Are you ready to begin?`,
+  ];
+}
+
+export function buildOutroMessage(candidateName: string, language: InterviewLanguage = 'en'): string {
+  if (language === 'vi') {
+    return `Cảm ơn ${candidateName} rất nhiều vì đã dành thời gian tham gia phỏng vấn hôm nay. ` +
+      `Kết quả đánh giá sẽ được gửi đến nhà tuyển dụng để xem xét. ` +
+      `Chúc bạn một ngày tốt lành!`;
+  }
+  return `Thank you so much ${candidateName} for taking the time to join today's interview. ` +
+    `The evaluation results will be shared with the hiring team for review. ` +
+    `Have a great day!`;
 }

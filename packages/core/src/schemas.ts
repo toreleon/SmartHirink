@@ -81,6 +81,7 @@ export const ScenarioCreateSchema = z.object({
   position: z.string().min(1),
   level: z.nativeEnum(InterviewLevel),
   domain: z.string().default('Software Engineering'),
+  language: z.enum(['en', 'vi']).default('en'),
   topics: z.array(z.string()).default([]),
   questionCount: z.number().int().min(1).max(30).default(10),
   durationMinutes: z.number().int().min(5).max(120).default(30),
@@ -132,7 +133,7 @@ export const InterviewSessionSchema = BaseSchema.extend({
   rubricId: z.string().uuid(),
   candidateId: z.string().uuid(),
   recruiterId: z.string().uuid(),
-  livekitRoom: z.string().min(1),
+  livekitRoom: z.string().optional().nullable(),
   phase: z.nativeEnum(InterviewPhase),
   phaseHistory: z.array(PhaseTransitionSchema).default([]),
   scheduledAt: z.coerce.date().optional().nullable(),
@@ -264,13 +265,6 @@ export const ModelConfigSchema = BaseSchema.extend({
   isDefault: z.boolean(),
   isActive: z.boolean(),
   config: z.record(z.unknown()).optional().nullable(),
-});
-
-// ─── LiveKit Token Request ───────────────────────────────
-export const LiveKitTokenRequestSchema = z.object({
-  sessionId: z.string().uuid(),
-  identity: z.string().min(1),
-  role: z.enum(['candidate', 'agent', 'recruiter']),
 });
 
 // ─── Data Channel Messages ────────────────────────────────
@@ -418,7 +412,6 @@ export type ModelConfigCreateInput = z.infer<typeof ModelConfigCreateSchema>;
 export type ModelConfigUpdateInput = z.infer<typeof ModelConfigUpdateSchema>;
 export type ModelConfig = z.infer<typeof ModelConfigSchema>;
 
-export type LiveKitTokenRequest = z.infer<typeof LiveKitTokenRequestSchema>;
 export type AgentDataMessage = z.infer<typeof AgentDataMessageSchema>;
 export type ClientDataMessage = z.infer<typeof ClientDataMessageSchema>;
 

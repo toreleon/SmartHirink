@@ -10,14 +10,14 @@
   "scripts": {
     "dev:api": "npm run dev --workspace=apps/api",
     "dev:web": "npm run dev --workspace=apps/web",
-    "dev:agent": "npm run dev --workspace=apps/agent",
+    "dev:agent": "cd apps/agent-pipecat && uvicorn server:app --host 0.0.0.0 --port 7860 --reload",
     "dev:worker": "npm run dev --workspace=apps/worker",
     "build": "npm run build --workspaces",
     "build:core": "npm run build --workspace=packages/core",
     "build:rag": "npm run build --workspace=packages/rag",
     "build:api": "npm run build --workspace=apps/api",
     "build:web": "npm run build --workspace=apps/web",
-    "build:agent": "npm run build --workspace=apps/agent",
+    "build:agent": "echo 'Python agent — no build step required'",
     "build:worker": "npm run build --workspace=apps/worker",
     "lint": "eslint . --ext .ts,.tsx",
     "format": "prettier --write \"**/*.{ts,tsx,json,md}\"",
@@ -29,5 +29,8 @@
   },
   "engines": {
     "node": ">=20.0.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.2"
   }
 }

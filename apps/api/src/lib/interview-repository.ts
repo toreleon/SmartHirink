@@ -20,7 +20,6 @@ export interface InterviewSessionCreateInput {
   rubricId: string;
   candidateId: string;
   recruiterId: string;
-  livekitRoom: string;
   scheduledAt?: Date | null;
   metadata?: Record<string, unknown> | null;
 }
@@ -184,15 +183,21 @@ export class InterviewSessionRepository extends BaseRepository<
         break;
     }
 
-    const updated = await this.update({ id }, updateData);
-
     // Update phase history
     const phaseHistory = session.phaseHistory as PhaseTransitionEntry[] || [];
     phaseHistory.push({ phase: newPhase, timestamp: new Date() });
 
+    // Use direct Prisma call — InterviewSession has no `version` field,
+    // so we cannot use BaseRepository.update() which adds version increment.
     await this.prisma.interviewSession.update({
       where: { id },
-      data: { phaseHistory: JSON.parse(JSON.stringify(phaseHistory)) as any },
+      data: {
+        phase: toPrismaPhase(updateData.phase!),
+        ...(updateData.startedAt && { startedAt: updateData.startedAt }),
+        ...(updateData.completedAt && { completedAt: updateData.completedAt }),
+        ...(updateData.endedAt && { endedAt: updateData.endedAt }),
+        phaseHistory: JSON.parse(JSON.stringify(phaseHistory)) as any,
+      },
     });
 
     await logAudit(this.prisma, {

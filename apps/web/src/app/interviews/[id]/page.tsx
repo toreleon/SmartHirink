@@ -29,8 +29,7 @@ export default function InterviewDetailPage() {
   const { user, hydrate } = useAuthStore();
   const [interview, setInterview] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [token, setToken] = useState<string | null>(null);
-  const [roomName, setRoomName] = useState<string | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const [joining, setJoining] = useState(false);
   const [sendingInvite, setSendingInvite] = useState(false);
   const [inviteUrl, setInviteUrl] = useState<string | null>(null);
@@ -54,10 +53,8 @@ export default function InterviewDetailPage() {
   const handleJoin = async () => {
     setJoining(true);
     try {
-      const role = user?.role === 'RECRUITER' ? 'recruiter' : 'candidate';
-      const data = await api.getLiveKitToken(id, role as any);
-      setToken(data.token);
-      setRoomName(data.room);
+      const data = await api.getInterviewConnection(id);
+      setSessionId(data.sessionId);
     } catch (err: any) {
       toast('error', err.message);
     } finally {
@@ -115,11 +112,10 @@ export default function InterviewDetailPage() {
     );
   }
 
-  if (token && roomName) {
+  if (sessionId) {
     return (
       <InterviewRoom
-        token={token}
-        roomName={roomName}
+        sessionId={sessionId}
         onSessionComplete={() => {
           router.push(`/interviews/${id}/results`);
         }}
@@ -167,8 +163,8 @@ export default function InterviewDetailPage() {
                   <dd>{interview.scenario?.level}</dd>
                 </div>
                 <div className="flex justify-between">
-                  <dt className="text-muted-foreground">Room</dt>
-                  <dd className="font-mono text-xs">{interview.livekitRoom}</dd>
+                  <dt className="text-muted-foreground">Session</dt>
+                  <dd className="font-mono text-xs">{interview.id}</dd>
                 </div>
               </dl>
             </div>

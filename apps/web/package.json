@@ -9,7 +9,6 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@livekit/components-react": "^2.4.0",
     "@radix-ui/react-alert-dialog": "^1.1.15",
     "@radix-ui/react-avatar": "^1.1.11",
     "@radix-ui/react-collapsible": "^1.1.12",
@@ -28,7 +27,6 @@
     "@smarthirink/core": "*",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "livekit-client": "^2.3.0",
     "lucide-react": "^0.576.0",
     "next": "^14.2.0",
     "next-themes": "^0.4.6",

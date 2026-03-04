@@ -25,4 +25,4 @@ WORKDIR /app
 ENV NODE_ENV=production
 RUN apt-get update && apt-get install -y --no-install-recommends openssl && rm -rf /var/lib/apt/lists/*
 COPY --from=base /app /app
-CMD ["node", "apps/agent/dist/main.js"]
+CMD ["node", "apps/agent/dist/main.js", "start"]

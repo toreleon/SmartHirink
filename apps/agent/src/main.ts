@@ -1,45 +1,89 @@
+import {
+  type JobContext,
+  type JobProcess,
+  WorkerOptions,
+  cli,
+  defineAgent,
+  voice,
+} from '@livekit/agents';
+import * as silero from '@livekit/agents-plugin-silero';
+import * as deepgram from '@livekit/agents-plugin-deepgram';
+import * as openai from '@livekit/agents-plugin-openai';
 import pino from 'pino';
 import { PrismaClient } from '@prisma/client';
 import IORedis from 'ioredis';
 import { Queue } from 'bullmq';
 import { loadAgentEnv } from './config.js';
-import { InterviewAgent, type SessionInfo } from './interview-agent.js';
-import { DeepgramSttAdapter } from './adapters/deepgram-stt.js';
-import { OpenAILlmAdapter } from './adapters/openai-llm.js';
-import { OpenAITtsAdapter } from './adapters/openai-tts.js';
-import { GeminiTtsAdapter } from './adapters/gemini-tts.js';
+import { InterviewVoiceAgent, type SessionInfo } from './interview-agent.js';
 import { OpenAIEmbeddingAdapter } from './adapters/openai-embedding.js';
-import type { TtsAdapter } from '@smarthirink/core';
 import { VectorStore, ContextManager } from '@smarthirink/rag';
 
 const logger = pino({ name: 'agent-main' });
-const env = loadAgentEnv();
-const prisma = new PrismaClient();
-const redis = new IORedis(env.REDIS_URL, { maxRetriesPerRequest: null });
 
-// Queues for async work
-const evaluationQueue = new Queue('evaluation', { connection: redis as any });
-const turnPersistQueue = new Queue('turn-persist', { connection: redis as any });
+export default defineAgent({
+  prewarm: async (proc: JobProcess) => {
+    logger.info('Prewarming agent worker...');
 
-// Track active agents
-const activeAgents = new Map<string, InterviewAgent>();
+    const env = loadAgentEnv();
 
-// RAG components (initialized in main())
-let contextManager: ContextManager | undefined;
+    // Shared resources for all jobs in this process
+    const prisma = new PrismaClient();
+    const redis = new IORedis(env.REDIS_URL, { maxRetriesPerRequest: null });
+    const evaluationQueue = new Queue('evaluation', { connection: redis as any });
+    const turnPersistQueue = new Queue('turn-persist', { connection: redis as any });
 
-// Exponential backoff state
-let consecutiveErrors = 0;
-let pollInterval = 3000;
-const MAX_POLL_INTERVAL = 60000;
-let pollTimer: ReturnType<typeof setTimeout> | null = null;
+    // Load Silero VAD model (CPU ONNX, ~2MB, loads once)
+    const vad = await silero.VAD.load();
 
-/**
- * Agent dispatcher: polls for WAITING sessions and creates agents.
- */
-async function pollForSessions(): Promise<void> {
-  try {
-    const sessions = await prisma.interviewSession.findMany({
-      where: { phase: 'WAITING' },
+    // Initialize RAG pipeline
+    let contextManager: ContextManager | undefined;
+    try {
+      const embedding = new OpenAIEmbeddingAdapter();
+      const vectorStore = new VectorStore(
+        { connectionString: env.DATABASE_URL },
+        { dimensions: embedding.dimensions },
+      );
+      await vectorStore.initialize();
+      contextManager = new ContextManager({ embedding, vectorStore });
+      logger.info('RAG pipeline initialized');
+    } catch (err) {
+      logger.warn({ err }, 'RAG initialization failed — running without context retrieval');
+    }
+
+    proc.userData = { env, prisma, redis, evaluationQueue, turnPersistQueue, vad, contextManager };
+
+    logger.info({
+      stt: 'deepgram',
+      llm: env.LLM_PROVIDER,
+      tts: 'deepgram',
+    }, 'Agent worker prewarmed');
+  },
+
+  entry: async (ctx: JobContext) => {
+    const {
+      env,
+      prisma,
+      evaluationQueue,
+      turnPersistQueue,
+      vad,
+      contextManager,
+    } = ctx.proc.userData as {
+      env: ReturnType<typeof loadAgentEnv>;
+      prisma: PrismaClient;
+      evaluationQueue: Queue;
+      turnPersistQueue: Queue;
+      vad: silero.VAD;
+      contextManager: ContextManager | undefined;
+    };
+
+    await ctx.connect();
+
+    const roomName = ctx.room.name;
+    logger.info({ roomName }, 'Agent dispatched to room');
+
+    // Look up the interview session from DB by room name
+    const dbSession = await prisma.interviewSession.findFirst({
+      where: { livekitRoom: roomName },
       include: {
         scenario: true,
         candidate: true,
@@ -47,137 +91,123 @@ async function pollForSessions(): Promise<void> {
       },
     });
 
-    // Reset backoff on success
-    consecutiveErrors = 0;
-    pollInterval = 3000;
+    if (!dbSession) {
+      logger.warn({ roomName }, 'No interview session found for room, shutting down');
+      ctx.shutdown('no-session');
+      return;
+    }
 
-    for (const session of sessions) {
-      if (activeAgents.has(session.id)) continue;
+    logger.info({
+      sessionId: dbSession.id,
+      candidate: dbSession.candidate.fullName,
+      scenario: dbSession.scenario.title,
+    }, 'Interview session found');
 
-      logger.info({ sessionId: session.id, room: session.livekitRoom }, 'Dispatching agent');
+    const sessionInfo: SessionInfo = {
+      sessionId: dbSession.id,
+      roomName: dbSession.livekitRoom,
+      candidateId: dbSession.candidateId,
+      candidateName: dbSession.candidate.fullName,
+      candidateSummary: [
+        `Skills: ${dbSession.candidate.skills.join(', ')}`,
+        `Experience: ${dbSession.candidate.experienceYears} years`,
+        dbSession.candidate.resumeText ? `Resume: ${dbSession.candidate.resumeText.slice(0, 500)}` : '',
+      ]
+        .filter(Boolean)
+        .join('\n'),
+      position: dbSession.scenario.position,
+      level: dbSession.scenario.level,
+      domain: dbSession.scenario.domain,
+      topics: dbSession.scenario.topics,
+      questionCount: dbSession.scenario.questionCount,
+      jobDescription: dbSession.scenario.description,
+      language: dbSession.scenario.language ?? 'en',
+    };
 
-      const sessionInfo: SessionInfo = {
-        sessionId: session.id,
-        roomName: session.livekitRoom,
-        candidateId: session.candidateId,
-        candidateName: session.candidate.fullName,
-        candidateSummary: [
-          `Skills: ${session.candidate.skills.join(', ')}`,
-          `Experience: ${session.candidate.experienceYears} years`,
-          session.candidate.resumeText ? `Resume: ${session.candidate.resumeText.slice(0, 500)}` : '',
-        ]
-          .filter(Boolean)
-          .join('\n'),
-        position: session.scenario.position,
-        level: session.scenario.level,
-        domain: session.scenario.domain,
-        topics: session.scenario.topics,
-        questionCount: session.scenario.questionCount,
-        jobDescription: session.scenario.description,
-      };
+    // Create the interview agent
+    const agent = new InterviewVoiceAgent(sessionInfo, contextManager);
 
-      const tts: TtsAdapter = env.TTS_PROVIDER === 'gemini'
-        ? new GeminiTtsAdapter()
-        : new OpenAITtsAdapter();
+    // Wire up persistence callbacks
+    agent.onTurnComplete = (turn) => {
+      turnPersistQueue.add('persist-turn', {
+        sessionId: dbSession.id,
+        ...turn,
+      });
+    };
 
-      const agent = new InterviewAgent(
-        {
-          stt: new DeepgramSttAdapter(),
-          llm: new OpenAILlmAdapter(),
-          tts,
-          contextManager,
-        },
-        sessionInfo,
-      );
-
-      // Persist turns asynchronously
-      agent.onTurnComplete = (turn) => {
-        turnPersistQueue.add('persist-turn', {
-          sessionId: session.id,
-          ...turn,
-        });
-      };
-
-      agent.onPhaseChange = async (phase) => {
+    agent.onPhaseChange = async (phase) => {
+      try {
         await prisma.interviewSession.update({
-          where: { id: session.id },
+          where: { id: dbSession.id },
           data: { phase },
         });
-      };
+      } catch (err) {
+        logger.error({ err, sessionId: dbSession.id }, 'Failed to update phase');
+      }
+    };
 
-      agent.onSessionComplete = async () => {
-        activeAgents.delete(session.id);
-        await evaluationQueue.add('evaluate', { sessionId: session.id });
-        logger.info({ sessionId: session.id }, 'Session complete, evaluation enqueued');
-      };
+    agent.onSessionComplete = async () => {
+      try {
+        await evaluationQueue.add('evaluate', { sessionId: dbSession.id });
+        logger.info({ sessionId: dbSession.id }, 'Session complete, evaluation enqueued');
+      } catch (err) {
+        logger.error({ err, sessionId: dbSession.id }, 'Failed to enqueue evaluation');
+      }
+    };
 
-      activeAgents.set(session.id, agent);
+    // Configure the voice pipeline with streaming STT → LLM → TTS
+    const lang = sessionInfo.language;
 
-      agent.connect(env.LIVEKIT_URL, env.LIVEKIT_API_KEY, env.LIVEKIT_API_SECRET).catch((err) => {
-        logger.error({ err, sessionId: session.id }, 'Failed to connect agent');
-        activeAgents.delete(session.id);
-      });
-    }
-  } catch (err) {
-    // Exponential backoff with jitter on consecutive errors
-    consecutiveErrors++;
-    const jitter = Math.random() * 1000;
-    pollInterval = Math.min(pollInterval * 2, MAX_POLL_INTERVAL) + jitter;
-    logger.error(
-      { err, consecutiveErrors, nextPollMs: Math.round(pollInterval) },
-      'Poll error, backing off',
-    );
-  }
+    const agentSession = new voice.AgentSession({
+      stt: new deepgram.STT({
+        model: 'nova-3',
+        language: lang === 'vi' ? 'vi' : 'en',
+        interimResults: true,
+        smartFormat: true,
+        punctuate: true,
+      }),
+      llm: new openai.LLM({
+        model: env.OPENAI_MODEL,
+        apiKey: env.OPENAI_API_KEY,
+        baseURL: env.OPENAI_BASE_URL,
+        temperature: 0.7,
+      }),
+      tts: new deepgram.TTS({
+        model: lang === 'vi' ? 'aura-2-thalia-en' : 'aura-2-thalia-en',
+      }),
+      vad,
+      turnDetection: 'vad',
+      voiceOptions: {
+        allowInterruptions: true,
+        minInterruptionDuration: 500,
+        minEndpointingDelay: 500,
+      },
+    });
 
-  // Schedule next poll
-  pollTimer = setTimeout(pollForSessions, pollInterval);
-}
+    // Start the fully streaming voice pipeline
+    await agentSession.start({
+      agent,
+      room: ctx.room,
+    });
 
-async function main(): Promise<void> {
-  logger.info('Agent worker starting...');
-  logger.info({
-    stt: env.STT_PROVIDER,
-    llm: env.LLM_PROVIDER,
-    tts: env.TTS_PROVIDER,
-  }, 'Configured providers');
+    logger.info({
+      sessionId: dbSession.id,
+      roomName,
+      pipeline: 'STT(deepgram/nova-3) → LLM(openai) → TTS(deepgram/aura-2)',
+    }, 'Interview voice pipeline started');
 
-  // Initialize RAG (VectorStore + ContextManager)
-  try {
-    const embedding = new OpenAIEmbeddingAdapter();
-    const vectorStore = new VectorStore(
-      { connectionString: env.DATABASE_URL },
-      { dimensions: embedding.dimensions },
-    );
-    await vectorStore.initialize();
-    contextManager = new ContextManager({ embedding, vectorStore });
-    logger.info('RAG pipeline initialized (VectorStore + ContextManager)');
-  } catch (err) {
-    logger.warn({ err }, 'RAG initialization failed — running without context retrieval');
-  }
-
-  // Start polling
-  await pollForSessions();
-
-  logger.info('Agent worker running. Polling for sessions...');
-
-  // Graceful shutdown
-  const shutdown = async () => {
-    logger.info('Shutting down...');
-    if (pollTimer) clearTimeout(pollTimer);
-    for (const [id, agent] of activeAgents) {
-      logger.info({ sessionId: id }, 'Disconnecting agent');
-      await agent.disconnect();
-    }
-    await prisma.$disconnect();
-    redis.disconnect();
-    process.exit(0);
-  };
-
-  process.on('SIGTERM', shutdown);
-  process.on('SIGINT', shutdown);
-}
-
-main().catch((err) => {
-  logger.fatal({ err }, 'Agent worker crashed');
-  process.exit(1);
+    // Graceful cleanup when the job shuts down
+    ctx.addShutdownCallback(async () => {
+      logger.info({ sessionId: dbSession.id }, 'Shutting down interview agent');
+      await agentSession.close();
+    });
+  },
 });
+
+// Prevent unhandled promise rejections from crashing the process
+process.on('unhandledRejection', (reason) => {
+  logger.error({ err: reason }, 'Unhandled rejection (caught, not crashing)');
+});
+
+// Bootstrap the LiveKit agent worker
+cli.runApp(new WorkerOptions({ agent: __filename }));

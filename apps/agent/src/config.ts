@@ -16,12 +16,13 @@ const envSchema = z
     OPENAI_BASE_URL: z.string().optional(),
     OPENAI_MODEL: z.string().default('gpt-4o'),
     // TTS
-    TTS_PROVIDER: z.enum(['openai', 'azure', 'elevenlabs', 'gemini']).default('openai'),
+    TTS_PROVIDER: z.enum(['openai', 'azure', 'elevenlabs', 'gemini', 'deepgram']).default('deepgram'),
     OPENAI_TTS_MODEL: z.string().default('tts-1'),
     OPENAI_TTS_VOICE: z.string().default('nova'),
     GOOGLE_API_KEY: z.string().optional(),
     GEMINI_TTS_MODEL: z.string().default('gemini-2.5-flash-preview-tts'),
     GEMINI_TTS_VOICE: z.string().default('Kore'),
+    DEEPGRAM_TTS_MODEL: z.string().default('aura-2-thalia-en'),
     // Embedding
     EMBEDDING_PROVIDER: z.string().default('openai'),
     EMBEDDING_MODEL: z.string().default('text-embedding-3-small'),
@@ -31,10 +32,10 @@ const envSchema = z
   })
   .superRefine((data, ctx) => {
     // Conditionally require API keys based on selected provider
-    if (data.STT_PROVIDER === 'deepgram' && !data.DEEPGRAM_API_KEY) {
+    if ((data.STT_PROVIDER === 'deepgram' || data.TTS_PROVIDER === 'deepgram') && !data.DEEPGRAM_API_KEY) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: 'DEEPGRAM_API_KEY is required when STT_PROVIDER=deepgram',
+        message: 'DEEPGRAM_API_KEY is required when STT or TTS provider is deepgram',
         path: ['DEEPGRAM_API_KEY'],
       });
     }

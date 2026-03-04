@@ -66,12 +66,6 @@
   }
 }
 
-/* LiveKit custom styles */
-.lk-participant-tile {
-  border-radius: 12px;
-  overflow: hidden;
-}
-
 .transcript-container {
   scroll-behavior: smooth;
 }

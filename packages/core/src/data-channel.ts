@@ -8,7 +8,7 @@ import {
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
-/** Encode an agent data message to a Uint8Array for LiveKit data channel. */
+/** Encode an agent data message to a Uint8Array for WebRTC data channel. */
 export function encodeAgentMessage(msg: AgentDataMessage): Uint8Array {
   AgentDataMessageSchema.parse(msg);
   return encoder.encode(JSON.stringify(msg));
@@ -20,7 +20,7 @@ export function decodeAgentMessage(data: Uint8Array): AgentDataMessage {
   return AgentDataMessageSchema.parse(parsed);
 }
 
-/** Encode a client data message to a Uint8Array for LiveKit data channel. */
+/** Encode a client data message to a Uint8Array for WebRTC data channel. */
 export function encodeClientMessage(msg: ClientDataMessage): Uint8Array {
   ClientDataMessageSchema.parse(msg);
   return encoder.encode(JSON.stringify(msg));

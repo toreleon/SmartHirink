@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   Mic,
   FileText,
+  Users,
   Settings,
   LogOut,
   Menu,
@@ -41,6 +42,7 @@ const navItems = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/interviews', label: 'Interviews', icon: Mic },
   { href: '/scenarios', label: 'Scenarios', icon: FileText, roles: ['RECRUITER', 'ADMIN'] },
+  { href: '/candidates', label: 'Candidates', icon: Users, roles: ['RECRUITER', 'ADMIN'] },
 ];
 
 export function ClientLayout({ children }: { children: React.ReactNode }) {

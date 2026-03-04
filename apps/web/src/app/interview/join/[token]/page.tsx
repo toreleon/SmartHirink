@@ -27,8 +27,6 @@ export default function CandidateInterviewPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [joining, setJoining] = useState(false);
-  const [livekitToken, setLivekitToken] = useState<string | null>(null);
-  const [roomName, setRoomName] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -45,9 +43,7 @@ export default function CandidateInterviewPage() {
     setError(null);
     try {
       const data = await api.joinInviteInterview(token);
-      setLivekitToken(data.livekitToken);
-      setRoomName(data.room);
-      setSessionId(data.interview.id);
+      setSessionId(data.sessionId);
     } catch (err: any) {
       setError(err.message || 'Failed to join interview');
     } finally {
@@ -85,14 +81,12 @@ export default function CandidateInterviewPage() {
   }
 
   // Render interview room once joined
-  if (livekitToken && roomName) {
+  if (sessionId) {
     return (
       <InterviewRoom
-        token={livekitToken}
-        roomName={roomName}
+        sessionId={sessionId}
         onSessionComplete={() => {
-          setLivekitToken(null);
-          setRoomName(null);
+          setSessionId(null);
           setInterview({ ...interview, phase: 'COMPLETED' });
         }}
       />
@@ -100,7 +94,7 @@ export default function CandidateInterviewPage() {
   }
 
   const isTerminal = ['COMPLETED', 'CANCELLED', 'NO_SHOW'].includes(interview?.phase);
-  const canJoin = !isTerminal && interview?.phase !== 'IN_PROGRESS';
+  const canJoin = !isTerminal;
 
   return (
     <div className="min-h-screen bg-background">

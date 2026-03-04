@@ -3,6 +3,12 @@ generator client {
   previewFeatures = ["postgresqlExtensions"]
 }
 
+generator py {
+  provider             = "prisma-client-py"
+  interface            = "asyncio"
+  recursive_type_depth = 5
+}
+
 datasource db {
   provider   = "postgresql"
   url        = env("DATABASE_URL")
@@ -57,6 +63,18 @@ enum AuditAction {
   PHASE_CHANGE
   EVALUATION
   REPORT_GENERATED
+  MINT_TOKEN
+  RESCHEDULE
+  CHANGE_PASSWORD
+  UPDATE_PROFILE
+  CREATE_SCENARIO
+  UPDATE_SCENARIO
+  DELETE_SCENARIO
+  INGEST_SCENARIO
+  CREATE_RUBRIC
+  UPDATE_RUBRIC
+  DELETE_RUBRIC
+  UPSERT_PROFILE
 }
 
 // ─── Users & Authentication ──────────────────────────────
@@ -98,6 +116,9 @@ model CandidateProfile {
   location        String?  // Timezone/city
   linkedinUrl     String?  @map("linkedin_url")
   githubUrl       String?  @map("github_url")
+  portfolioUrl    String?  @map("portfolio_url")
+  summary         String?  @db.Text // AI-generated professional summary
+  parsedData      Json?    @map("parsed_data") // Full structured parse: education, workExperience, certifications, etc.
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
   deletedAt       DateTime? @map("deleted_at")
@@ -137,6 +158,7 @@ model Scenario {
   position        String         @map("position")
   level           InterviewLevel @map("level")
   domain          String         @default("Software Engineering")
+  language        String         @default("en")
   topics          String[]       @default([])
   questionCount   Int            @default(10) @map("question_count")
   durationMinutes Int            @default(30) @map("duration_minutes")
@@ -162,7 +184,7 @@ model Rubric {
   scenarioId  String   @map("scenario_id")
   title       String   // Human-readable title
   description String?  @db.Text
-  createdAt   DateTime @default(now())
+  createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
   deletedAt   DateTime? @map("deleted_at")
 
@@ -197,7 +219,7 @@ model InterviewSession {
   rubricId        String         @map("rubric_id")
   candidateId     String         @map("candidate_id")
   recruiterId     String         @map("recruiter_id")
-  livekitRoom     String         @unique @map("livekit_room")
+  livekitRoom     String?        @unique @map("livekit_room")
   phase           InterviewPhase @default(CREATED)
   phaseHistory    Json           @default("[]") @map("phase_history")
   scheduledAt     DateTime?      @map("scheduled_at")
@@ -259,7 +281,7 @@ model ScoreCard {
   recommendation   Recommendation @map("recommendation")
   evaluatedBy      String?      @map("evaluated_by") // AI model name or user ID
   evaluatedAt      DateTime     @map("evaluated_at")
-  createdAt        DateTime     @default(now())
+  createdAt        DateTime     @default(now()) @map("created_at")
   updatedAt        DateTime     @updatedAt @map("updated_at")
   deletedAt        DateTime? @map("deleted_at")
 
@@ -296,7 +318,7 @@ model Report {
   summary     String?  @db.Text // AI-generated executive summary
   metadata    Json?    // { generatorVersion, modelUsed }
   generatedAt DateTime @map("generated_at")
-  createdAt   DateTime @default(now())
+  createdAt   DateTime @default(now()) @map("created_at")
   deletedAt   DateTime? @map("deleted_at")
 
   session   InterviewSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
@@ -320,7 +342,7 @@ model ModelConfig {
   isDefault         Boolean  @default(false) @map("is_default")
   isActive          Boolean  @default(true) @map("is_active")
   config            Json?    // Provider-specific config
-  createdAt         DateTime @default(now())
+  createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
   deletedAt         DateTime? @map("deleted_at")
 

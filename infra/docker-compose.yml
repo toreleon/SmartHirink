@@ -31,20 +31,6 @@ services:
       timeout: 3s
       retries: 5
 
-  # ───────────────────────────────── LiveKit ─────────────────────────────────
-  livekit:
-    image: livekit/livekit-server:latest
-    restart: unless-stopped
-    ports:
-      - '7880:7880'   # HTTP / WebSocket
-      - '7881:7881'   # RTC (TCP)
-      - '7882:7882/udp' # RTC (UDP)
-    volumes:
-      - ./livekit.yaml:/livekit.yaml
-    command: --config /livekit.yaml --dev
-    environment:
-      LIVEKIT_KEYS: "devkey: secret123456789012345678901234567890"
-
   # ───────────────────────────────── API ─────────────────────────────────────
   api:
     build:
@@ -54,38 +40,6 @@ services:
     stop_grace_period: 15s
     ports:
       - '4000:4000'
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    env_file:
-      - ../.env
-    environment:
-      DATABASE_URL: postgresql://smarthirink:smarthirink_secret@postgres:5432/smarthirink
-      REDIS_URL: redis://redis:6379
-      LIVEKIT_URL: ws://livekit:7880
-      LIVEKIT_API_KEY: devkey
-      LIVEKIT_API_SECRET: secret123456789012345678901234567890
-      PORT: 4000
-      HOST: 0.0.0.0
-      APP_URL: http://localhost:3000
-      REPORTS_DIR: /app/reports
-    volumes:
-      - reports:/app/reports
-    healthcheck:
-      test: ['CMD-SHELL', 'wget -qO- http://localhost:4000/health || exit 1']
-      interval: 10s
-      timeout: 5s
-      retries: 3
-
-  # ───────────────────────────────── Agent ───────────────────────────────────
-  agent:
-    build:
-      context: ..
-      dockerfile: infra/Dockerfile.agent
-    restart: unless-stopped
-    stop_grace_period: 15s
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -93,17 +47,45 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      livekit:
-        condition: service_started
+    env_file:
+      - ../.env
+    environment:
+      DATABASE_URL: postgresql://smarthirink:smarthirink_secret@postgres:5432/smarthirink
+      REDIS_URL: redis://redis:6379  # Internal port unchanged
+      AGENT_URL: http://agent:7860
+      PORT: 4000
+      HOST: 0.0.0.0
+      APP_URL: http://localhost:3000
+      REPORTS_DIR: /app/reports
+    volumes:
+      - reports:/app/reports
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:4000/health || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ───────────────────────────────── Agent (Pipecat) ─────────────────────────
+  agent:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.agent-pipecat
+    restart: unless-stopped
+    stop_grace_period: 15s
+    ports:
+      - '7860:7860'
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     env_file:
       - ../.env
     environment:
       DATABASE_URL: postgresql://smarthirink:smarthirink_secret@postgres:5432/smarthirink
       REDIS_URL: redis://redis:6379
-      LIVEKIT_URL: ws://livekit:7880
-      LIVEKIT_API_KEY: devkey
-      LIVEKIT_API_SECRET: secret123456789012345678901234567890
-      OPENAI_BASE_URL: http://host.docker.internal:4141/v1
 
   # ───────────────────────────────── Worker ──────────────────────────────────
   worker:
@@ -133,7 +115,6 @@ services:
       dockerfile: infra/Dockerfile.web
       args:
         NEXT_PUBLIC_API_URL: ''
-        NEXT_PUBLIC_LIVEKIT_URL: ws://localhost:7880
         API_PROXY_TARGET: http://api:4000
     restart: unless-stopped
     ports:
@@ -142,7 +123,6 @@ services:
       - api
     environment:
       NEXT_PUBLIC_API_URL: ''
-      NEXT_PUBLIC_LIVEKIT_URL: ws://localhost:7880
       API_PROXY_TARGET: http://api:4000
 
 volumes:

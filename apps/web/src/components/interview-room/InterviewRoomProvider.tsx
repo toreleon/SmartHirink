@@ -1,36 +1,45 @@
 'use client';
 
-import { createContext, useEffect, useRef, useCallback, type ReactNode } from 'react';
-import {
-  Room,
-  RoomEvent,
-  Track,
-} from 'livekit-client';
+import { createContext, useEffect, useRef, useCallback, useState, type ReactNode } from 'react';
 import { useInterviewStore } from '@/lib/store';
-
-const LIVEKIT_URL = (process.env.NEXT_PUBLIC_LIVEKIT_URL ?? 'ws://localhost:7880').replace(/\/+$/, '');
 
 export interface InterviewRoomContextValue {
   sendClientEvent: (action: 'start' | 'pause' | 'stop' | 'ping') => void;
   toggleMic: () => Promise<void>;
   setVolume: (volume: number) => void;
+  canPlaybackAudio?: boolean;
+  startAudio?: () => void;
 }
 
 export const InterviewRoomContext = createContext<InterviewRoomContextValue | null>(null);
 
 interface Props {
-  token: string;
-  roomName: string;
+  sessionId: string;
+  roomName?: string;
   onSessionComplete?: () => void;
   children: ReactNode;
 }
 
-export function InterviewRoomProvider({ token, onSessionComplete, children }: Props) {
-  const roomRef = useRef<Room | null>(null);
+/**
+ * Connects to the Pipecat interview agent via native WebRTC (SmallWebRTCTransport).
+ *
+ * Signaling flow:
+ * 1. Browser creates RTCPeerConnection + SDP offer
+ * 2. POST /api/interviews/:id/offer → proxied to Pipecat agent → SDP answer
+ * 3. ICE candidates trickled via PATCH /api/interviews/:id/offer
+ * 4. Audio flows peer-to-peer: browser mic → agent STT → LLM → TTS → browser speakers
+ * 5. Transcripts & state arrive via WebRTC data channel
+ */
+export function InterviewRoomProvider({ sessionId, onSessionComplete, children }: Props) {
+  const pcRef = useRef<RTCPeerConnection | null>(null);
+  const dcRef = useRef<RTCDataChannel | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioTrackRef = useRef<MediaStreamTrack | null>(null);
+  const onSessionCompleteRef = useRef(onSessionComplete);
+  onSessionCompleteRef.current = onSessionComplete;
+  const [canPlaybackAudio, setCanPlaybackAudio] = useState(true);
 
   const {
-    aiPartialText,
     setPhase,
     setSpeaking,
     addTranscript,
@@ -44,166 +53,246 @@ export function InterviewRoomProvider({ token, onSessionComplete, children }: Pr
     reset,
   } = useInterviewStore();
 
+  /**
+   * Handle messages from the Pipecat agent via WebRTC data channel.
+   * Message types: 'transcript' (STT/LLM text) and 'state' (agent status).
+   */
   const handleAgentMessage = useCallback(
     (msg: any) => {
-      switch (msg.type) {
-        case 'partial_transcript':
-          setCandidatePartialText(msg.text);
-          break;
-
-        case 'final_transcript':
-          addTranscript({
-            turnId: msg.turnId,
-            role: 'CANDIDATE',
-            text: msg.text,
-            isFinal: true,
-            timestamp: msg.t,
-          });
-          break;
-
-        case 'ai_text':
-          setAiPartialText(msg.text);
-          break;
-
-        case 'state': {
-          const prevPhase = useInterviewStore.getState().phase;
-          setPhase(msg.phase);
-          setSpeaking(msg.speaking.who);
-          if (msg.speaking.who === 'AI') {
-            useInterviewStore.setState({ vad: false });
+      if (msg.type === 'transcript') {
+        if (msg.role === 'AI') {
+          if (msg.isFinal) {
+            addTranscript({
+              turnId: `ai-${msg.turnIndex ?? Date.now()}`,
+              role: 'AI',
+              text: msg.text,
+              isFinal: true,
+              timestamp: Date.now(),
+            });
+            setAiPartialText('');
+          } else {
+            setAiPartialText(msg.text);
           }
-          if (msg.speaking.who === 'CANDIDATE') {
+        } else {
+          // CANDIDATE
+          if (msg.isFinal) {
+            addTranscript({
+              turnId: `cand-${msg.turnIndex ?? Date.now()}`,
+              role: 'CANDIDATE',
+              text: msg.text,
+              isFinal: true,
+              timestamp: Date.now(),
+            });
+            setCandidatePartialText('');
+          } else {
+            setCandidatePartialText(msg.text);
+            setSpeaking('CANDIDATE');
             useInterviewStore.setState({ vad: true });
           }
-          // If phase changed to an active phase, start the timer
-          if (
-            prevPhase === 'CREATED' &&
-            ['INTRO', 'QUESTIONING', 'WRAP_UP'].includes(msg.phase)
-          ) {
-            setTimerStartedAt(Date.now());
-          }
-          // When AI finishes speaking and we have AI text
-          const currentAiText = useInterviewStore.getState().aiPartialText;
-          if (msg.speaking.who === 'NONE' && currentAiText) {
-            addTranscript({
-              turnId: msg.t.toString(),
-              role: 'AI',
-              text: currentAiText,
-              isFinal: true,
-              timestamp: msg.t,
-            });
-          }
-          break;
+        }
+      } else if (msg.type === 'state') {
+        if (msg.speaking === 'AI') {
+          setSpeaking('AI');
+          useInterviewStore.setState({ vad: false });
+        } else if (msg.speaking === 'NONE') {
+          setSpeaking('NONE');
         }
 
-        case 'error':
-          setError(msg.message);
-          if (msg.recoverable) {
-            setTimeout(() => setError(null), 5000);
+        if (msg.phase === 'IN_PROGRESS') {
+          const prevPhase = useInterviewStore.getState().phase;
+          if (prevPhase === 'CREATED' || prevPhase === 'WAITING') {
+            setPhase('IN_PROGRESS');
+            setTimerStartedAt(Date.now());
           }
-          break;
-
-        case 'session_complete':
+        } else if (msg.phase === 'COMPLETED') {
           setPhase('COMPLETED');
-          onSessionComplete?.();
-          break;
+          onSessionCompleteRef.current?.();
+        }
       }
     },
     [],
   );
 
   useEffect(() => {
-    const room = new Room({
-      adaptiveStream: true,
-      dynacast: true,
-    });
-    roomRef.current = room;
+    let cancelled = false;
 
-    room.on(RoomEvent.DataReceived, (data) => {
+    const connect = async () => {
       try {
-        const msg = JSON.parse(new TextDecoder().decode(data));
-        handleAgentMessage(msg);
-      } catch {
-        // Ignore malformed messages
-      }
-    });
+        // 1. Get user media (microphone)
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const audioTrack = stream.getAudioTracks()[0];
+        audioTrackRef.current = audioTrack;
 
-    room.on(RoomEvent.TrackSubscribed, (track, _publication, participant) => {
-      if (
-        track.kind === Track.Kind.Audio &&
-        participant.identity.startsWith('agent_')
-      ) {
-        const element = track.attach();
-        document.body.appendChild(element);
-        audioRef.current = element as HTMLAudioElement;
-      }
-    });
+        // 2. Create RTCPeerConnection
+        const pc = new RTCPeerConnection({
+          iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+        });
+        pcRef.current = pc;
 
-    room.on(RoomEvent.TrackUnsubscribed, (track) => {
-      track.detach().forEach((el) => el.remove());
-    });
+        // Track ICE candidates to send after we get pc_id from answer
+        let pcId: string | null = null;
+        let canSendIce = false;
+        const pendingCandidates: RTCIceCandidate[] = [];
 
-    room.on(RoomEvent.Connected, () => {
-      setConnected(true);
-      setConnectionQuality('excellent');
-    });
+        const sendIceCandidate = async (candidate: RTCIceCandidate) => {
+          await fetch(`/api/interviews/${sessionId}/offer`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              pc_id: pcId,
+              candidates: [{
+                candidate: candidate.candidate,
+                sdp_mid: candidate.sdpMid,
+                sdp_mline_index: candidate.sdpMLineIndex,
+              }],
+            }),
+          });
+        };
 
-    room.on(RoomEvent.Disconnected, () => {
-      setConnected(false);
-      setConnectionQuality('poor');
-    });
+        // 3. ICE candidate handler (trickle)
+        pc.onicecandidate = async (event) => {
+          if (event.candidate) {
+            if (canSendIce && pcId) {
+              await sendIceCandidate(event.candidate);
+            } else {
+              pendingCandidates.push(event.candidate);
+            }
+          }
+        };
 
-    room.on(RoomEvent.ConnectionQualityChanged, (_quality, participant) => {
-      if (participant.isLocal) {
-        const q = Number(_quality);
-        if (q >= 3) setConnectionQuality('excellent');
-        else if (q >= 2) setConnectionQuality('good');
-        else setConnectionQuality('poor');
-      }
-    });
+        // 4. Connection state monitoring
+        pc.onconnectionstatechange = () => {
+          const state = pc.connectionState;
+          if (state === 'connected') {
+            setConnected(true);
+            setConnectionQuality('excellent');
+            setIsMicMuted(false);
+          } else if (state === 'disconnected' || state === 'failed') {
+            setConnected(false);
+            setConnectionQuality('poor');
+          }
+        };
 
-    room
-      .connect(LIVEKIT_URL, token)
-      .then(async () => {
-        // Only enable mic if the participant has publish permissions (candidates, not recruiters)
-        if (room.localParticipant.permissions?.canPublish) {
-          await room.localParticipant.setMicrophoneEnabled(true);
-          setIsMicMuted(false);
+        pc.oniceconnectionstatechange = () => {
+          const state = pc.iceConnectionState;
+          if (state === 'connected' || state === 'completed') {
+            setConnectionQuality('excellent');
+          } else if (state === 'checking') {
+            setConnectionQuality('good');
+          } else if (state === 'disconnected') {
+            setConnectionQuality('poor');
+          }
+        };
+
+        // 5. Handle remote audio track (agent speech)
+        pc.ontrack = (event) => {
+          if (event.track.kind === 'audio') {
+            const audioElement = new Audio();
+            audioElement.srcObject = event.streams[0];
+            audioElement.autoplay = true;
+            audioElement.play().then(() => {
+              setCanPlaybackAudio(true);
+            }).catch(() => {
+              setCanPlaybackAudio(false);
+            });
+            audioRef.current = audioElement;
+          }
+        };
+
+        // 6. Add audio transceiver (send mic, receive agent)
+        pc.addTransceiver(audioTrack, { direction: 'sendrecv' });
+        // Video transceiver required by Pipecat SmallWebRTCTransport
+        pc.addTransceiver('video', { direction: 'sendrecv' });
+
+        // 7. Create data channel for bidirectional messages with agent
+        // Browser must create the channel — Pipecat listens via on("datachannel")
+        const dc = pc.createDataChannel('chat', { ordered: true });
+        dcRef.current = dc;
+        dc.onmessage = (e) => {
+          try {
+            const msg = JSON.parse(e.data);
+            handleAgentMessage(msg);
+          } catch {
+            // Ignore non-JSON messages
+          }
+        };
+
+        // 8. Create SDP offer
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+
+        if (cancelled) return;
+
+        // 9. Send offer to Pipecat agent (via API proxy)
+        const response = await fetch(`/api/interviews/${sessionId}/offer`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sdp: pc.localDescription!.sdp,
+            type: pc.localDescription!.type,
+            session_id: sessionId,
+          }),
+        });
+
+        if (!response.ok) {
+          const err = await response.json().catch(() => ({ detail: 'Connection failed' }));
+          throw new Error(err.detail || `Agent error: ${response.status}`);
         }
-      })
-      .catch((err) => {
-        setError(`Failed to connect: ${err.message}`);
-      });
+
+        const answer = await response.json();
+        pcId = answer.pc_id;
+
+        // 10. Set remote description (SDP answer)
+        await pc.setRemoteDescription(new RTCSessionDescription({
+          sdp: answer.sdp,
+          type: answer.type,
+        }));
+
+        // 11. Flush pending ICE candidates
+        canSendIce = true;
+        for (const candidate of pendingCandidates) {
+          await sendIceCandidate(candidate);
+        }
+        pendingCandidates.length = 0;
+
+        setConnected(true);
+      } catch (err: any) {
+        if (!cancelled) {
+          setError(`Failed to connect: ${err.message}`);
+        }
+      }
+    };
+
+    connect();
 
     return () => {
-      room.disconnect();
-      audioRef.current?.remove();
+      cancelled = true;
+      pcRef.current?.close();
+      audioTrackRef.current?.stop();
+      audioRef.current?.pause();
+      dcRef.current?.close();
       reset();
     };
-  }, [token]);
+  }, [sessionId]);
 
   const sendClientEvent = useCallback(
     (action: 'start' | 'pause' | 'stop' | 'ping') => {
-      const room = roomRef.current;
-      if (!room) return;
-      const msg = JSON.stringify({
+      const dc = dcRef.current;
+      if (!dc || dc.readyState !== 'open') return;
+      dc.send(JSON.stringify({
         type: 'client_event',
         action,
         t: Date.now(),
-      });
-      room.localParticipant.publishData(new TextEncoder().encode(msg), {
-        reliable: true,
-      });
+      }));
     },
     [],
   );
 
   const toggleMic = useCallback(async () => {
-    const room = roomRef.current;
-    if (!room || !room.localParticipant.permissions?.canPublish) return;
-    const current = room.localParticipant.isMicrophoneEnabled;
-    await room.localParticipant.setMicrophoneEnabled(!current);
-    setIsMicMuted(current);
+    const track = audioTrackRef.current;
+    if (!track) return;
+    track.enabled = !track.enabled;
+    setIsMicMuted(!track.enabled);
   }, []);
 
   const setVolume = useCallback((volume: number) => {
@@ -213,8 +302,16 @@ export function InterviewRoomProvider({ token, onSessionComplete, children }: Pr
     useInterviewStore.setState({ volume });
   }, []);
 
+  const startAudio = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.play().then(() => {
+        setCanPlaybackAudio(true);
+      }).catch(() => {});
+    }
+  }, []);
+
   return (
-    <InterviewRoomContext.Provider value={{ sendClientEvent, toggleMic, setVolume }}>
+    <InterviewRoomContext.Provider value={{ sendClientEvent, toggleMic, setVolume, canPlaybackAudio, startAudio }}>
       {children}
     </InterviewRoomContext.Provider>
   );

@@ -1,0 +1,21 @@
+[project]
+name = "smarthirink-agent"
+version = "1.0.0"
+description = "Pipecat voice AI interview agent for SmartHirink"
+requires-python = ">=3.10"
+dependencies = [
+    "pipecat-ai[webrtc,deepgram,openai,silero]>=0.0.55",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "prisma>=0.15.0",
+    "redis[hiredis]>=5.2.0",
+    "pydantic>=2.10.0",
+    "pydantic-settings>=2.7.0",
+    "python-dotenv>=1.0.0",
+    "loguru>=0.7.0",
+    "httpx>=0.28.0",
+]
+
+[build-system]
+requires = ["setuptools>=75.0"]
+build-backend = "setuptools.build_meta"

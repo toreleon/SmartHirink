@@ -8,7 +8,7 @@ import {
 } from '../prompts.js';
 
 describe('buildOrchestratorSystemPrompt', () => {
-  it('includes position and level', () => {
+  it('includes position and level (en)', () => {
     const prompt = buildOrchestratorSystemPrompt({
       position: 'Backend Engineer',
       level: 'Mid-level',
@@ -19,6 +19,7 @@ describe('buildOrchestratorSystemPrompt', () => {
       questionCount: 10,
       previousTurns: [],
       currentQuestionIndex: 0,
+      language: 'en',
     });
     expect(prompt).toContain('Backend Engineer');
     expect(prompt).toContain('Mid-level');
@@ -26,6 +27,22 @@ describe('buildOrchestratorSystemPrompt', () => {
     expect(prompt).toContain('Nguyen Van A');
     expect(prompt).toContain('1. Node.js');
     expect(prompt).toContain('2. System Design');
+  });
+
+  it('uses Vietnamese prompt when language is vi', () => {
+    const prompt = buildOrchestratorSystemPrompt({
+      position: 'Backend Engineer',
+      level: 'Mid-level',
+      domain: 'Software Engineering',
+      topics: [],
+      candidateName: 'Test',
+      candidateSummary: '',
+      questionCount: 5,
+      previousTurns: [],
+      currentQuestionIndex: 0,
+      language: 'vi',
+    });
+    expect(prompt).toContain('QUY TẮC BẮT BUỘC');
   });
 
   it('includes RAG context when provided', () => {
@@ -40,6 +57,7 @@ describe('buildOrchestratorSystemPrompt', () => {
       previousTurns: [],
       currentQuestionIndex: 0,
       retrievedContext: 'Some RAG context here',
+      language: 'en',
     });
     expect(prompt).toContain('Some RAG context here');
   });
@@ -55,23 +73,34 @@ describe('buildOrchestratorSystemPrompt', () => {
       questionCount: 5,
       previousTurns: [],
       currentQuestionIndex: 0,
+      language: 'en',
     });
-    expect(prompt).not.toContain('NGỮ CẢNH BỔ SUNG');
+    expect(prompt).not.toContain('SUPPLEMENTARY CONTEXT');
   });
 });
 
 describe('buildOrchestratorUserMessage', () => {
-  it('includes conversation history and latest text', () => {
+  it('includes conversation history and latest text (en)', () => {
     const msg = buildOrchestratorUserMessage(
       [
         { role: 'AI', text: 'Hello' },
         { role: 'CANDIDATE', text: 'Hi there' },
       ],
       'My answer about Node.js',
+      'en',
     );
     expect(msg).toContain('My answer about Node.js');
+    expect(msg).toContain('[Interviewer]: Hello');
+    expect(msg).toContain('[Candidate]: Hi there');
+  });
+
+  it('uses Vietnamese labels when language is vi', () => {
+    const msg = buildOrchestratorUserMessage(
+      [{ role: 'AI', text: 'Hello' }],
+      'My answer',
+      'vi',
+    );
     expect(msg).toContain('[Phỏng vấn viên]: Hello');
-    expect(msg).toContain('[Ứng viên]: Hi there');
   });
 });
 
@@ -101,17 +130,28 @@ describe('buildEvaluatorPrompt', () => {
 });
 
 describe('buildIntroMessage', () => {
-  it('includes candidate name and position', () => {
-    const msg = buildIntroMessage('Nguyen Van A', 'Backend Engineer');
+  it('includes candidate name and position (en)', () => {
+    const msg = buildIntroMessage('Nguyen Van A', 'Backend Engineer', 'en');
     expect(msg).toContain('Nguyen Van A');
     expect(msg).toContain('Backend Engineer');
     expect(msg).toContain('SmartHirink');
   });
+
+  it('returns Vietnamese intro when language is vi', () => {
+    const msg = buildIntroMessage('Nguyen Van A', 'Backend Engineer', 'vi');
+    expect(msg).toContain('Xin chào');
+  });
 });
 
 describe('buildOutroMessage', () => {
-  it('includes candidate name', () => {
-    const msg = buildOutroMessage('Nguyen Van A');
+  it('includes candidate name (en)', () => {
+    const msg = buildOutroMessage('Nguyen Van A', 'en');
     expect(msg).toContain('Nguyen Van A');
+    expect(msg).toContain('Thank you');
+  });
+
+  it('returns Vietnamese outro when language is vi', () => {
+    const msg = buildOutroMessage('Nguyen Van A', 'vi');
+    expect(msg).toContain('Cảm ơn');
   });
 });

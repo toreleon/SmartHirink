@@ -59,18 +59,41 @@ export class GeminiTtsAdapter implements TtsAdapter {
       },
     };
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
+    const maxAttempts = 4;
+    let response: Response | null = null;
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Gemini TTS error (${response.status}): ${errorText}`);
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      if (response.status === 429 && attempt < maxAttempts) {
+        // Parse retry delay from response if available, default to exponential backoff
+        let waitMs = Math.min(2000 * Math.pow(2, attempt - 1), 15000);
+        try {
+          const errJson = await response.json() as any;
+          const retryDelay = errJson?.error?.details?.find((d: any) =>
+            d['@type']?.includes('RetryInfo'))?.retryDelay;
+          if (retryDelay) {
+            const seconds = parseInt(retryDelay);
+            if (!isNaN(seconds)) waitMs = (seconds + 1) * 1000;
+          }
+        } catch { /* ignore parse error */ }
+        await new Promise((r) => setTimeout(r, waitMs));
+        continue;
+      }
+
+      break;
     }
 
-    const json = await response.json() as {
+    if (!response!.ok) {
+      const errorText = await response!.text();
+      throw new Error(`Gemini TTS error (${response!.status}): ${errorText}`);
+    }
+
+    const json = await response!.json() as {
       candidates: Array<{
         content: {
           parts: Array<{

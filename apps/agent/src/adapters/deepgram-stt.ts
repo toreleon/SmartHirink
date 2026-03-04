@@ -29,19 +29,22 @@ class DeepgramSttStream implements SttStream {
   private resultCb: ((result: SttResult) => void) | null = null;
   private errorCb: ((err: Error) => void) | null = null;
   private connected: Promise<void>;
+  private isConnected = false;
 
   constructor(
     private apiKey: string,
     private options: { sampleRate: number; channels: number; languageHints?: string[] },
   ) {
     this.connected = this.connect();
+    // Prevent unhandled rejection crash if connect fails before onError is set
+    this.connected.catch(() => {});
   }
 
   private async connect(): Promise<void> {
+    const language = this.options.languageHints?.[0] ?? 'en';
     const params = new URLSearchParams({
       model: 'nova-2',
-      language: 'vi', // Vietnamese primary
-      detect_language: 'true', // Enables code-switching detection
+      language,
       smart_format: 'true',
       interim_results: 'true',
       utterance_end_ms: '1500',
@@ -57,10 +60,25 @@ class DeepgramSttStream implements SttStream {
         { headers: { Authorization: `Token ${this.apiKey}` } },
       );
 
-      this.ws.on('open', () => resolve());
+      this.ws.on('open', () => {
+        this.isConnected = true;
+        resolve();
+      });
       this.ws.on('error', (err) => {
+        this.isConnected = false;
         this.errorCb?.(err);
         reject(err);
+      });
+
+      this.ws.on('unexpected-response', (_req, res) => {
+        let body = '';
+        res.on('data', (chunk: Buffer) => { body += chunk.toString(); });
+        res.on('end', () => {
+          const detail = `Deepgram WS ${res.statusCode}: ${body}`;
+          const err = new Error(detail);
+          this.errorCb?.(err);
+          reject(err);
+        });
       });
 
       this.ws.on('message', (data) => {
@@ -94,8 +112,12 @@ class DeepgramSttStream implements SttStream {
         }
       });
 
-      this.ws.on('close', () => {
-        // Stream ended
+      this.ws.on('close', (code, reason) => {
+        this.isConnected = false;
+        if (code !== 1000) {
+          const msg = reason?.toString() || `WebSocket closed with code ${code}`;
+          this.errorCb?.(new Error(msg));
+        }
       });
     });
   }

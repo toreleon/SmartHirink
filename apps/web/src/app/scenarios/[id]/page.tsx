@@ -111,8 +111,8 @@ export default function ScenarioDetailPage() {
           </div>
         </CardHeader>
         <CardContent>
-          <p className="text-muted-foreground mb-4">
-            {scenario.position}
+          <p className="text-sm text-muted-foreground mb-3">
+            {scenario.position} &middot; {scenario.domain || 'Software Engineering'} &middot; {scenario.questionCount || 10} questions &middot; {scenario.durationMinutes || 30} min
           </p>
 
           {scenario.topics?.length > 0 && (
@@ -227,7 +227,12 @@ export default function ScenarioDetailPage() {
           {scenario.rubrics.map((r: any, ri: number) => (
             <Card key={r.id}>
               <CardHeader className="pb-3">
-                <CardTitle className="text-base">Rubric #{ri + 1}</CardTitle>
+                <CardTitle className="text-base">
+                  {r.title || `Rubric #${ri + 1}`}
+                  <span className="ml-2 text-xs font-normal text-muted-foreground">
+                    {r.criteria?.length || 0} criteria
+                  </span>
+                </CardTitle>
               </CardHeader>
               <CardContent>
                 <Table>

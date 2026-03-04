@@ -1,9 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import { InterviewPhase as PrismaInterviewPhase } from '@prisma/client';
-import { InterviewPhase, InterviewSessionCreateSchema, LiveKitTokenRequestSchema } from '@smarthirink/core';
+import { InterviewPhase, InterviewSessionCreateSchema } from '@smarthirink/core';
 import prisma from '../lib/prisma.js';
 import { InterviewSessionRepository } from '../lib/interview-repository.js';
-import { ensureRoom, mintLiveKitToken } from '../lib/livekit.js';
 import { logAudit } from '../lib/audit.js';
 import { authorizeSession } from '../lib/authorize.js';
 import { evaluationQueue } from '../lib/queue.js';
@@ -42,7 +41,6 @@ export async function interviewRoutes(app: FastifyInstance) {
       rubricId: body.rubricId,
       candidateId: body.candidateId,
       recruiterId: payload.sub,
-      livekitRoom: `interview_${crypto.randomUUID().slice(0, 8)}`,
       scheduledAt: body.scheduledAt ?? null,
       metadata: body.metadata ?? {},
     });
@@ -140,9 +138,6 @@ export async function interviewRoutes(app: FastifyInstance) {
     const { allowed, session } = await authorizeSession(id, payload.sub, payload.role);
     if (!session) return reply.status(404).send({ error: 'Not found' });
     if (!allowed) return reply.status(403).send({ error: 'Forbidden' });
-
-    // Ensure LiveKit room exists
-    await ensureRoom(session.livekitRoom);
 
     // Transition to WAITING first if CREATED
     let updatedSession = session;
@@ -263,60 +258,54 @@ export async function interviewRoutes(app: FastifyInstance) {
     return report;
   });
 
-  // ─── LiveKit Token ─────────────────────────────────────
+  // ─── Interview Connection (returns agent URL for WebRTC signaling) ──
   app.post('/interviews/token', { onRequest: [app.authenticate] }, async (req, reply) => {
     const payload = req.user as { sub: string; role: string };
-    const body = LiveKitTokenRequestSchema.parse(req.body);
+    const { sessionId } = req.body as { sessionId: string };
 
-    // Validate that body.role matches user's actual role
-    const roleMap: Record<string, string> = {
-      candidate: 'CANDIDATE',
-      recruiter: 'RECRUITER',
-    };
-    if (roleMap[body.role] && roleMap[body.role] !== payload.role) {
-      return reply.status(403).send({ 
-        error: 'Role mismatch: requested role does not match your account' 
-      });
+    if (!sessionId) {
+      return reply.status(400).send({ error: 'sessionId is required' });
     }
 
     // Verify session access
-    const { allowed, session } = await authorizeSession(body.sessionId, payload.sub, payload.role);
+    const { allowed, session } = await authorizeSession(sessionId, payload.sub, payload.role);
     if (!session) return reply.status(404).send({ error: 'Session not found' });
     if (!allowed) return reply.status(403).send({ error: 'Forbidden' });
 
-    let identity: string;
-    let canPublish = true;
-    let canSubscribe = true;
+    const env = loadEnv();
 
-    switch (body.role) {
-      case 'candidate':
-        identity = `candidate_${session.candidateId}`;
-        break;
-      case 'recruiter':
-        identity = `recruiter_${payload.sub}`;
-        canPublish = false;
-        break;
-      case 'agent':
-        identity = `agent_${session.id}`;
-        break;
-      default:
-        return reply.status(400).send({ error: 'Invalid role' });
-    }
+    return { sessionId: session.id, agentUrl: env.AGENT_URL };
+  });
 
-    const token = await mintLiveKitToken({
-      roomName: session.livekitRoom,
-      identity,
-      canPublish,
-      canSubscribe,
-      canPublishData: true,
+  // ─── Proxy WebRTC offer to Pipecat agent ─────────────────
+  app.post('/interviews/:id/offer', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const body = req.body as any;
+    const env = loadEnv();
+
+    const response = await fetch(`${env.AGENT_URL}/api/offer`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...body, session_id: id }),
     });
 
-    await logAudit('MINT_TOKEN', 'LiveKit', session.id, payload.sub, {
-      role: body.role,
-      room: session.livekitRoom,
+    const data = await response.json();
+    return reply.status(response.status).send(data);
+  });
+
+  // ─── Proxy ICE candidates to Pipecat agent ───────────────
+  app.patch('/interviews/:id/offer', async (req, reply) => {
+    const body = req.body as any;
+    const env = loadEnv();
+
+    const response = await fetch(`${env.AGENT_URL}/api/offer`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
     });
 
-    return { token, room: session.livekitRoom, identity };
+    const data = await response.json();
+    return reply.status(response.status).send(data);
   });
 
   // ─── Reschedule Interview ──────────────────────────────
@@ -433,7 +422,6 @@ export async function interviewRoutes(app: FastifyInstance) {
       inviteSentAt: session.inviteSentAt,
       scenario: session.scenario,
       candidate: session.candidate,
-      livekitRoom: session.livekitRoom,
     };
   });
 
@@ -458,37 +446,21 @@ export async function interviewRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: `This interview is ${session.phase.toLowerCase().replace('_', ' ')}` });
     }
 
-    // Ensure LiveKit room exists
-    await ensureRoom(session.livekitRoom);
-
     // Transition to WAITING if still CREATED or SCHEDULED
+    let currentPhase = session.phase;
     if (session.phase === 'CREATED' || session.phase === 'SCHEDULED') {
-      await repo.updatePhase(session.id, InterviewPhase.WAITING, 'invite-link');
+      await repo.updatePhase(session.id, InterviewPhase.WAITING);
+      currentPhase = 'WAITING';
     }
 
-    // Mint LiveKit token for the candidate
-    const identity = `candidate_${session.candidateId}`;
-    const livekitToken = await mintLiveKitToken({
-      roomName: session.livekitRoom,
-      identity,
-      canPublish: true,
-      canSubscribe: true,
-      canPublishData: true,
-    });
-
-    await logAudit('MINT_TOKEN', 'LiveKit', session.id, undefined, {
-      role: 'candidate',
-      room: session.livekitRoom,
-      via: 'invite-link',
-    });
+    const env = loadEnv();
 
     return {
-      livekitToken,
-      room: session.livekitRoom,
-      identity,
+      sessionId: session.id,
+      agentUrl: env.AGENT_URL,
       interview: {
         id: session.id,
-        phase: 'WAITING',
+        phase: currentPhase,
         scenario: session.scenario,
         candidate: session.candidate,
       },

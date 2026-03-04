@@ -6,7 +6,6 @@ import {
   ScenarioCreateSchema,
   RubricCreateSchema,
   InterviewSessionCreateSchema,
-  LiveKitTokenRequestSchema,
   AgentDataMessageSchema,
   ClientDataMessageSchema,
 } from '../schemas.js';
@@ -130,27 +129,6 @@ describe('InterviewSessionCreateSchema', () => {
         scenarioId: 'not-uuid',
         rubricId: 'not-uuid',
         candidateId: 'not-uuid',
-      }),
-    ).toThrow();
-  });
-});
-
-describe('LiveKitTokenRequestSchema', () => {
-  it('accepts valid request', () => {
-    const result = LiveKitTokenRequestSchema.parse({
-      sessionId: '550e8400-e29b-41d4-a716-446655440000',
-      identity: 'candidate_123',
-      role: 'candidate',
-    });
-    expect(result.role).toBe('candidate');
-  });
-
-  it('rejects invalid role', () => {
-    expect(() =>
-      LiveKitTokenRequestSchema.parse({
-        sessionId: '550e8400-e29b-41d4-a716-446655440000',
-        identity: 'test',
-        role: 'invalid',
       }),
     ).toThrow();
   });

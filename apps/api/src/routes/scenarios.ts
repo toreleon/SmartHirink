@@ -3,8 +3,97 @@ import { ScenarioCreateSchema, RubricCreateSchema } from '@smarthirink/core';
 import prisma from '../lib/prisma.js';
 import { logAudit } from '../lib/audit.js';
 import { authorizeScenario } from '../lib/authorize.js';
+import { parseJdToScenario } from '../lib/llm-parser.js';
+import { extractTextFromFile } from '../lib/pdf-extract.js';
 
 export async function scenarioRoutes(app: FastifyInstance) {
+  // ─── Parse JD → Create Scenario + Rubric (Recruiter/Admin only) ─
+  app.post('/scenarios/parse-jd', { onRequest: [app.authenticate] }, async (req, reply) => {
+    const payload = req.user as { sub: string; role: string };
+    if (payload.role === 'CANDIDATE') {
+      return reply.status(403).send({ error: 'Forbidden' });
+    }
+
+    // Accept multipart file (PDF or text) or JSON body with jdText
+    let jdText: string;
+
+    const contentType = req.headers['content-type'] || '';
+    if (contentType.includes('multipart/form-data')) {
+      const file = await req.file();
+      if (!file) {
+        return reply.status(400).send({ error: 'No file uploaded' });
+      }
+      const buffer = await file.toBuffer();
+      jdText = await extractTextFromFile(buffer, file.mimetype, file.filename);
+    } else {
+      const body = req.body as { jdText?: string };
+      if (!body?.jdText) {
+        return reply.status(400).send({ error: 'jdText is required' });
+      }
+      jdText = body.jdText;
+    }
+
+    if (!jdText.trim()) {
+      return reply.status(400).send({ error: 'Job description text is empty' });
+    }
+
+    // Parse JD via LLM
+    let parsed;
+    try {
+      parsed = await parseJdToScenario(jdText);
+    } catch (err: any) {
+      req.log.error({ err: err.message, stack: err.stack }, 'JD parse failed');
+      return reply.status(500).send({ error: `JD parsing failed: ${err.message}` });
+    }
+
+    // Verify the authenticated user exists before creating resources
+    const user = await prisma.user.findUnique({ where: { id: payload.sub } });
+    if (!user) {
+      return reply.status(401).send({ error: 'User not found. Please log in again.' });
+    }
+
+    // Create Scenario + Rubric in a transaction
+    const { scenario, rubric } = await prisma.$transaction(async (tx) => {
+      const scenario = await tx.scenario.create({
+        data: {
+          title: parsed.title,
+          description: parsed.description,
+          position: parsed.position,
+          level: parsed.level as any,
+          domain: parsed.domain,
+          topics: parsed.topics,
+          questionCount: parsed.questionCount,
+          durationMinutes: parsed.durationMinutes,
+          createdById: payload.sub,
+        },
+      });
+
+      const rubric = await tx.rubric.create({
+        data: {
+          scenarioId: scenario.id,
+          title: parsed.rubric.title,
+          criteria: {
+            create: parsed.rubric.criteria.map((c) => ({
+              name: c.name,
+              description: c.description,
+              maxScore: c.maxScore,
+              weight: c.weight,
+              order: c.order,
+            })),
+          },
+        },
+        include: { criteria: true },
+      });
+
+      return { scenario, rubric };
+    });
+
+    await logAudit('CREATE', 'Scenario', scenario.id, payload.sub);
+    await logAudit('CREATE', 'Rubric', rubric.id, payload.sub);
+
+    return reply.status(201).send({ scenario, rubric, parsed });
+  });
+
   // ─── Create Scenario ────────────────────────────────────
   app.post('/scenarios', { onRequest: [app.authenticate] }, async (req, reply) => {
     const payload = req.user as { sub: string; role: string };

@@ -99,6 +99,7 @@ const users = [
   {
     id: ids.admin,
     email: 'admin@smarthirink.com',
+    fullName: 'Admin',
     passwordHash: PASSWORD_HASH,
     role: UserRole.ADMIN,
     isActive: true,
@@ -106,6 +107,7 @@ const users = [
   {
     id: ids.recruiterAlice,
     email: 'alice.nguyen@smarthirink.com',
+    fullName: 'Alice Nguyen',
     passwordHash: PASSWORD_HASH,
     role: UserRole.RECRUITER,
     isActive: true,
@@ -114,6 +116,7 @@ const users = [
   {
     id: ids.recruiterBob,
     email: 'bob.tran@smarthirink.com',
+    fullName: 'Bob Tran',
     passwordHash: PASSWORD_HASH,
     role: UserRole.RECRUITER,
     isActive: true,
@@ -122,6 +125,7 @@ const users = [
   {
     id: ids.candidateCharlie,
     email: 'charlie.le@example.com',
+    fullName: 'Charlie Le',
     passwordHash: PASSWORD_HASH,
     role: UserRole.CANDIDATE,
     isActive: true,
@@ -129,6 +133,7 @@ const users = [
   {
     id: ids.candidateDiana,
     email: 'diana.pham@example.com',
+    fullName: 'Diana Pham',
     passwordHash: PASSWORD_HASH,
     role: UserRole.CANDIDATE,
     isActive: true,
@@ -136,6 +141,7 @@ const users = [
   {
     id: ids.candidateEvan,
     email: 'evan.vo@example.com',
+    fullName: 'Evan Vo',
     passwordHash: PASSWORD_HASH,
     role: UserRole.CANDIDATE,
     isActive: true,
@@ -143,6 +149,7 @@ const users = [
   {
     id: ids.candidateFiona,
     email: 'fiona.hoang@example.com',
+    fullName: 'Fiona Hoang',
     passwordHash: PASSWORD_HASH,
     role: UserRole.CANDIDATE,
     isActive: true,
@@ -150,6 +157,7 @@ const users = [
   {
     id: ids.candidateGeorge,
     email: 'george.do@example.com',
+    fullName: 'George Do',
     passwordHash: PASSWORD_HASH,
     role: UserRole.CANDIDATE,
     isActive: true,

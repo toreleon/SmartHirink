@@ -169,11 +169,11 @@ class ApiClient {
     return this.request<any>(`/interviews/${id}/report`);
   }
 
-  // ─── LiveKit Token ─────────────────────────────────────
-  async getLiveKitToken(sessionId: string, role: 'candidate' | 'recruiter') {
-    return this.request<{ token: string; room: string; identity: string }>('/interviews/token', {
+  // ─── Interview Connection ──────────────────────────────
+  async getInterviewConnection(sessionId: string) {
+    return this.request<{ sessionId: string; agentUrl: string }>('/interviews/connection', {
       method: 'POST',
-      body: JSON.stringify({ sessionId, role, identity: `${role}_user` }),
+      body: JSON.stringify({ sessionId }),
     });
   }
 
@@ -202,6 +202,10 @@ class ApiClient {
     return this.request<{ total: number; items: any[] }>(`/candidates?${search}`);
   }
 
+  async getCandidate(id: string) {
+    return this.request<any>(`/candidates/${id}`);
+  }
+
   async updateCandidateProfile(data: any) {
     return this.request<any>('/candidates/profile', { method: 'POST', body: JSON.stringify(data) });
   }
@@ -224,12 +228,81 @@ class ApiClient {
       const error = await res.json().catch(() => ({ error: res.statusText }));
       throw new Error(error.error || `API Error: ${res.status}`);
     }
-    return res.json() as Promise<{ livekitToken: string; room: string; identity: string; interview: any }>;
+    return res.json() as Promise<{ sessionId: string; agentUrl: string; interview: any }>;
   }
 
   async sendInvite(interviewId: string) {
     return this.request<{ ok: boolean; inviteUrl: string }>(`/interviews/${interviewId}/send-invite`, {
       method: 'POST',
+    });
+  }
+
+  // ─── CV / JD Parsing ─────────────────────────────────
+  async parseCv(file: File) {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const token = this.getToken();
+    const headers: Record<string, string> = {};
+    if (token) headers.Authorization = `Bearer ${token}`;
+
+    const url = API_URL ? `${API_URL}/api/candidates/parse-cv` : `/api/candidates/parse-cv`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: formData,
+      credentials: 'include',
+    });
+
+    if (res.status === 401) {
+      this.handleUnauthorized();
+      throw new Error('Unauthorized');
+    }
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(error.error || `API Error: ${res.status}`);
+    }
+    return res.json() as Promise<{ candidate: any; parsed: any; created: boolean }>;
+  }
+
+  async parseCvText(cvText: string) {
+    return this.request<{ candidate: any; parsed: any; created: boolean }>('/candidates/parse-cv', {
+      method: 'POST',
+      body: JSON.stringify({ cvText }),
+    });
+  }
+
+  async parseJd(file: File) {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const token = this.getToken();
+    const headers: Record<string, string> = {};
+    if (token) headers.Authorization = `Bearer ${token}`;
+
+    const url = API_URL ? `${API_URL}/api/scenarios/parse-jd` : `/api/scenarios/parse-jd`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: formData,
+      credentials: 'include',
+    });
+
+    if (res.status === 401) {
+      this.handleUnauthorized();
+      throw new Error('Unauthorized');
+    }
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(error.error || `API Error: ${res.status}`);
+    }
+    return res.json() as Promise<{ scenario: any; rubric: any; parsed: any }>;
+  }
+
+  async parseJdText(jdText: string) {
+    return this.request<{ scenario: any; rubric: any; parsed: any }>('/scenarios/parse-jd', {
+      method: 'POST',
+      body: JSON.stringify({ jdText }),
     });
   }
 

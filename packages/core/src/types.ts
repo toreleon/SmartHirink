@@ -146,7 +146,7 @@ export interface InterviewSession extends BaseEntity {
   rubricId: string;
   candidateId: string;
   recruiterId: string;
-  livekitRoom: string;
+  livekitRoom?: string | null;
   phase: InterviewPhase;
   phaseHistory: PhaseTransition[];
   scheduledAt?: Date | null;

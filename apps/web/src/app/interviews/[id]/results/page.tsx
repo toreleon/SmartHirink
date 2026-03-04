@@ -63,10 +63,18 @@ export default function ResultsPage() {
     );
   }
 
-  const criterionScores = scoreCard?.criterionScores || [];
+  const criteria = scoreCard?.criteria || [];
   const scorePercent = scoreCard
     ? (scoreCard.overallScore / scoreCard.maxPossibleScore) * 100
     : 0;
+
+  // Derive strengths/weaknesses from criteria (top scorers vs low scorers)
+  const strengths = criteria
+    .filter((c: any) => c.score / c.maxScore >= 0.7)
+    .map((c: any) => `${c.name}: ${c.reasoning.split('.')[0]}`);
+  const weaknesses = criteria
+    .filter((c: any) => c.score / c.maxScore < 0.7)
+    .map((c: any) => `${c.name}: ${c.reasoning.split('.')[0]}`);
 
   return (
     <div className="container max-w-4xl py-8">
@@ -117,11 +125,13 @@ export default function ResultsPage() {
                       Strengths
                     </h3>
                     <ul className="space-y-1">
-                      {scoreCard.strengths.map((s: string, i: number) => (
+                      {strengths.length > 0 ? strengths.map((s: string, i: number) => (
                         <li key={i} className="text-sm text-muted-foreground">
                           &bull; {s}
                         </li>
-                      ))}
+                      )) : (
+                        <li className="text-sm text-muted-foreground italic">No data yet</li>
+                      )}
                     </ul>
                   </div>
                   <div>
@@ -130,11 +140,13 @@ export default function ResultsPage() {
                       Areas for Improvement
                     </h3>
                     <ul className="space-y-1">
-                      {scoreCard.weaknesses.map((w: string, i: number) => (
+                      {weaknesses.length > 0 ? weaknesses.map((w: string, i: number) => (
                         <li key={i} className="text-sm text-muted-foreground">
                           &bull; {w}
                         </li>
-                      ))}
+                      )) : (
+                        <li className="text-sm text-muted-foreground italic">No data yet</li>
+                      )}
                     </ul>
                   </div>
                 </div>
@@ -156,9 +168,9 @@ export default function ResultsPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {criterionScores.map((cs: any, i: number) => (
+                    {criteria.map((cs: any, i: number) => (
                       <TableRow key={i}>
-                        <TableCell className="font-medium">{cs.criterionName}</TableCell>
+                        <TableCell className="font-medium">{cs.name}</TableCell>
                         <TableCell>
                           <div className="flex items-center gap-2">
                             <span className="text-sm font-bold text-primary">
