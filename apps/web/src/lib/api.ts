@@ -1,4 +1,4 @@
-const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000').replace(/\/+$/, '');
+const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? '').replace(/\/+$/, '');
 
 function isTokenExpired(token: string): boolean {
   try {
@@ -59,7 +59,8 @@ class ApiClient {
       headers.Authorization = `Bearer ${token}`;
     }
 
-    const res = await fetch(`${API_URL}/api${path}`, {
+    const url = API_URL ? `${API_URL}/api${path}` : `/api${path}`;
+    const res = await fetch(url, {
       ...options,
       headers,
       credentials: 'include',
