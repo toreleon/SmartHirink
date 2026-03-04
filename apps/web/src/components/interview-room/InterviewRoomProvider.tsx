@@ -8,7 +8,7 @@ import {
 } from 'livekit-client';
 import { useInterviewStore } from '@/lib/store';
 
-const LIVEKIT_URL = process.env.NEXT_PUBLIC_LIVEKIT_URL || 'ws://localhost:7880';
+const LIVEKIT_URL = (process.env.NEXT_PUBLIC_LIVEKIT_URL ?? 'ws://localhost:7880').replace(/\/+$/, '');
 
 export interface InterviewRoomContextValue {
   sendClientEvent: (action: 'start' | 'pause' | 'stop' | 'ping') => void;
